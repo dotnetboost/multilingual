@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- Pure JSON API: no wwwroot, so skip the static web assets manifest. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.EntityFrameworkCore/DotNetBoost.MultiLingual.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.API/DotNetBoost.MultiLingual.API.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <!-- SQLite, so there is nothing to install. Swap for Npgsql.EntityFrameworkCore.PostgreSQL or
+         Microsoft.EntityFrameworkCore.SqlServer and change one line in Program.cs. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+</Project>

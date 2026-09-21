@@ -1,0 +1,286 @@
+@host = http://localhost:5160
+
+### Prefer clicking? The Scalar UI is at {{host}}/scalar (and / redirects there).
+### Every content endpoint there has an Accept-Language dropdown listing the active languages.
+
+### This sample runs in BASE-LANGUAGE mode with BaseLanguage = "en" (see Program.cs):
+###   * English lives in Products.Name / Categories.Name — real columns, visible in any SQL client
+###   * Arabic and French live in Translations
+###   * a missing translation falls back to the English column, so content is never null
+###   * a product or category can only be CREATED with Accept-Language: en
+###   * English cannot be deleted or deactivated
+
+### ------------------------------------------------------------------
+### 1. Languages — seeded with en (default), ar, fr
+### ------------------------------------------------------------------
+
+GET {{host}}/api/languages
+
+### Add a fourth language (direction omitted -> inferred as "ltr")
+
+POST {{host}}/api/languages
+Content-Type: application/json
+
+{
+  "code": "es",
+  "name": "Espanol",
+  "isActive": true
+}
+
+### Hebrew: direction omitted -> inferred as "rtl" from the culture data
+
+POST {{host}}/api/languages
+Content-Type: application/json
+
+{
+  "code": "he",
+  "name": "עברית"
+}
+
+### Direction can also be set explicitly ("ltr" or "rtl")
+
+POST {{host}}/api/languages
+Content-Type: application/json
+
+{
+  "code": "fa",
+  "name": "فارسی",
+  "direction": "rtl"
+}
+
+### Invalid code -> 400
+
+POST {{host}}/api/languages
+Content-Type: application/json
+
+{
+  "code": "not-a-code",
+  "name": "Nope"
+}
+
+### Languages are addressed by code — the code is the identity and never changes
+
+GET {{host}}/api/languages/ar
+
+### Rename a language (full replacement of name, direction and active flag)
+
+PUT {{host}}/api/languages/es
+Content-Type: application/json
+
+{
+  "name": "Español",
+  "isActive": true
+}
+
+### Promote Arabic to default (demotes English atomically)
+
+POST {{host}}/api/languages/ar/set-default
+
+### ...and back again
+
+POST {{host}}/api/languages/en/set-default
+
+### Deleting English -> 409. It is the base language: every entity's own table holds it and
+### every other language falls back to it. Still refused after ar becomes the default above.
+
+DELETE {{host}}/api/languages/en
+
+### Deactivating the base language -> 409, for the same reason
+
+PUT {{host}}/api/languages/en
+Content-Type: application/json
+
+{
+  "name": "English",
+  "isActive": false
+}
+
+### Deleting a language that still has translations -> 409 with a hint
+
+DELETE {{host}}/api/languages/fr
+
+### Purge one language's translations; after this, DELETE {{host}}/api/languages/fr succeeds.
+### (Skip this one if you want to follow the French examples below.)
+
+DELETE {{host}}/api/languages/fr/translations
+
+### ------------------------------------------------------------------
+### 2. Read path — the same product in three languages
+### ------------------------------------------------------------------
+
+### Default language (no Accept-Language)
+GET {{host}}/api/products
+
+### Explicit language
+GET {{host}}/api/products
+Accept-Language: ar
+
+### Quality-weighted negotiation: fr-FR has no exact match, so the bare "fr" is used
+GET {{host}}/api/products
+Accept-Language: fr-FR, fr;q=0.9, en;q=0.5
+
+### Highest quality wins, regardless of order
+GET {{host}}/api/products
+Accept-Language: ar;q=0.4, en;q=0.8
+
+### NOTE-A5 has no translation rows at all — every language reads its English columns
+GET {{host}}/api/products/3
+Accept-Language: ar
+
+### MOUSE-01 has no French translation -> falls back to the English column
+GET {{host}}/api/products/2
+Accept-Language: fr
+
+### Unknown / inactive language -> falls back to the default,
+### and the Content-Language response header tells you what you got
+GET {{host}}/api/products/1
+Accept-Language: de
+
+### What language did the API actually resolve?
+GET {{host}}/api/current-language
+Accept-Language: ar
+
+### An unknown language is reported as not honoured
+GET {{host}}/api/current-language
+Accept-Language: de
+
+### ------------------------------------------------------------------
+### 3. Write path — one language per request (Accept-Language)
+### ------------------------------------------------------------------
+
+### Creating in a language other than the base one -> 409. The base value is what every
+### translation hangs off, so it has to exist first.
+POST {{host}}/api/products
+Accept-Language: ar
+Content-Type: application/json
+
+{
+  "sku": "HEADSET-AR",
+  "price": 89.99,
+  "name": "سماعة رأس لاسلكية"
+}
+
+### Create a product; Name/Description are stored as English, in the Products row itself
+POST {{host}}/api/products
+Accept-Language: en
+Content-Type: application/json
+
+{
+  "sku": "HEADSET-02",
+  "price": 89.99,
+  "categoryId": 1,
+  "name": "Wireless Headset",
+  "description": "Over-ear headset with 30-hour battery life."
+}
+
+### Add Arabic to the same product — this one becomes a row in Translations, and the English
+### column is left exactly as it was
+PUT {{host}}/api/products/4
+Accept-Language: ar
+Content-Type: application/json
+
+{
+  "name": "سماعة رأس لاسلكية",
+  "description": "سماعة رأس بعمر بطارية 30 ساعة."
+}
+
+### Add French
+PUT {{host}}/api/products/4
+Accept-Language: fr
+Content-Type: application/json
+
+{
+  "name": "Casque sans fil",
+  "description": "Casque circum-auriculaire, 30 heures d'autonomie."
+}
+
+### Verify: every stored language for that product
+GET {{host}}/api/products/4/translations
+
+### Verify: each language reads back correctly
+GET {{host}}/api/products/4
+Accept-Language: ar
+
+###
+GET {{host}}/api/products/4
+Accept-Language: fr
+
+### Partial update: change only the price. Name/Description are omitted, so the English columns
+### and every stored translation are left untouched — including under Accept-Language: ar, where
+### the English value loaded from the column is never filed as an Arabic translation.
+PUT {{host}}/api/products/4
+Content-Type: application/json
+
+{
+  "price": 79.99
+}
+
+### Confirm the translations survived a price-only update
+GET {{host}}/api/products/4/translations
+
+### Update just the French name, leaving English and Arabic alone
+PUT {{host}}/api/products/4
+Accept-Language: fr
+Content-Type: application/json
+
+{
+  "name": "Casque Bluetooth"
+}
+
+###
+GET {{host}}/api/products/4/translations
+
+### Unknown field -> 400 (request bodies reject anything the DTO does not declare)
+PUT {{host}}/api/products/4
+Accept-Language: fr
+Content-Type: application/json
+
+{
+  "translations": { "ar": { "Name": "x" } }
+}
+
+### Delete: the product's translation rows go with it, same transaction
+DELETE {{host}}/api/products/4
+
+###
+GET {{host}}/api/products/4/translations
+
+### ------------------------------------------------------------------
+### 4. Class-level attribute — Category needs no per-property annotation
+### ------------------------------------------------------------------
+
+GET {{host}}/api/categories
+Accept-Language: ar
+
+### "books" has no French translation -> English fallback
+GET {{host}}/api/categories
+Accept-Language: fr
+
+###
+POST {{host}}/api/categories
+Accept-Language: en
+Content-Type: application/json
+
+{
+  "slug": "home-garden",
+  "displayOrder": 3,
+  "name": "Home & Garden",
+  "description": "Everything for the house."
+}
+
+### Add Arabic to the new category
+PUT {{host}}/api/categories/3
+Accept-Language: ar
+Content-Type: application/json
+
+{
+  "name": "المنزل والحديقة",
+  "description": "كل ما يخص المنزل."
+}
+
+### Slug is [NotMultiLingual], so it is identical in every language
+GET {{host}}/api/categories/3
+Accept-Language: ar
+
+###
+GET {{host}}/api/categories/3/translations

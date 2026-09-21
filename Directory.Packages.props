@@ -1,0 +1,90 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Versions deliberately track DotNetBoost.Settings, so an application using both packages
+       never has to reconcile two different Microsoft.Extensions.* floors. -->
+  <ItemGroup Label="Microsoft">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <!-- 10.0.11: the first Microsoft.AspNetCore.OpenApi release that requires the patched
+         Microsoft.OpenApi [2.7.5, 3.0.0) (GHSA-v5pm-xwqc-g5wc). Referenced by the API package
+         on net10.0 only — the transformer API it builds on does not exist in the 8.x line. -->
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
+  </ItemGroup>
+
+  <ItemGroup Label="API documentation (sample only)">
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.1" />
+  </ItemGroup>
+
+  <!--
+    Future providers. Uncomment alongside the matching src/ project; the versions match
+    DotNetBoost.Settings so both libraries can share one driver in the same application.
+
+    <ItemGroup Label="Dapper">
+      <PackageVersion Include="Dapper" Version="2.1.79" />
+    </ItemGroup>
+
+    <ItemGroup Label="MongoDB">
+      <PackageVersion Include="MongoDB.Driver" Version="3.8.1" />
+      MongoDB.Driver -> SharpCompress 0.30.1 (GHSA-6c8g-7p36-r338, patched in 0.48.0):
+      <PackageVersion Include="SharpCompress" Version="0.48.1" />
+    </ItemGroup>
+  -->
+
+  <!-- Transitive pins: patched versions for packages flagged by NuGet audit. -->
+  <ItemGroup Label="Transitive security pins">
+    <!-- Microsoft.Data.Sqlite -> SQLitePCLRaw.* 2.1.11 (GHSA-2m69-gcr7-jv3q, fixed after 2.1.11). -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="2.1.13" />
+  </ItemGroup>
+
+  <ItemGroup Label="Integration testing">
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers.MsSql" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.1.6" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+  </ItemGroup>
+
+  <!--
+    Per-TFM versions. The shipped packages multi-target net8.0 (LTS) and net10.0, and the
+    EF Core / ASP.NET Core families ship a separate major per runtime — EF Core 10 has no
+    net8.0 asset at all. $(TargetFramework) is set during NuGet's per-TFM evaluation, so
+    each inner build resolves the family matching its runtime.
+  -->
+  <PropertyGroup>
+    <_Net8 Condition="'$(TargetFramework)' == 'net8.0'">true</_Net8>
+  </PropertyGroup>
+
+  <ItemGroup Label="EF Core / ASP.NET Core — net8.0" Condition="'$(_Net8)' == 'true'">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.30" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.30" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="8.0.30" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.30" />
+  </ItemGroup>
+
+  <ItemGroup Label="EF Core / ASP.NET Core — net10.0" Condition="'$(_Net8)' != 'true'">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
+  </ItemGroup>
+</Project>
