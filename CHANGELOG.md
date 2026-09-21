@@ -57,6 +57,9 @@ Initial library, extracted from the MultilingualApi prototype.
   `ILanguageChangeSignal` and `UseLanguageChangeSignal<T>()` plug in other backends. Adds a
   `Microsoft.Extensions.Caching.Abstractions` reference to `DotNetBoost.MultiLingual.Core`.
 
+- The integration tests run on net8.0 as well as net10.0, against EF Core 8's SQL Server and
+  PostgreSQL providers.
+
 ### Changed (relative to the prototype)
 - Translations reference languages by **code** rather than a numeric id, and use the natural
   composite key instead of a surrogate `Id`. Language endpoints are addressed by code.
