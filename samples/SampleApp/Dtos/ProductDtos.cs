@@ -61,6 +61,18 @@ public sealed record ProductResponse(
     string? Description,
     string Language);
 
+/// <summary>A product row as a list shows it, built by a single translated projection.</summary>
+public sealed record ProductSummaryResponse(
+    int Id,
+    string Sku,
+    decimal Price,
+    string? Name,
+    string? Category,
+    string Language);
+
+/// <summary>What a bulk delete removed: the products, and the translation rows they left behind.</summary>
+public sealed record BulkDeleteResponse(int DeletedProducts, int PurgedTranslations);
+
 /// <summary>Every stored translation for one product, for verifying the mechanism end to end.</summary>
 public sealed record ProductTranslationsResponse(
     int Id,

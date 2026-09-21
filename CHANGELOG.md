@@ -27,6 +27,11 @@ Initial library, extracted from the MultilingualApi prototype.
   quietly file English text as the Arabic translation.
 - The sample application runs in base-language mode (`BaseLanguage = "en"`), so `Products.Name`
   and `Categories.Name` are real columns and `SampleApp.http` walks the rules that come with it.
+  It also shows searching and sorting on the translated name (`?search=`, `?sort=`), a translated
+  DTO projection (`GET /api/products/summaries`), clearing one language's translation
+  (`DELETE /api/products/{id}/translations/{language}`), a bulk delete followed by the orphan
+  purge (`DELETE /api/products?categoryId=`), and — commented, since it is one process — how to
+  share language changes between instances.
 - `DotNetBoost.MultiLingual.Core`: `[MultiLingual]` / `[NotMultiLingual]`, `ITranslationManager`
   (hydrate with default-language fallback, save, delete, stage), `ILanguageManager` with the
   language rules, `ILanguageCatalog` with a configurable expiry, `ILanguageContext`, and the

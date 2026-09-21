@@ -27,6 +27,19 @@ builder.Services
     .UseEntityFrameworkCore<AppDbContext>()
     .Build();
 
+// Running more than one instance? Each caches the language list, and only the instance that
+// changes a language refreshes at once. Share a change signal through a distributed cache the
+// instances already use, and every instance picks the change up within seconds:
+//
+//   builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redisConnectionString);
+//   builder.Services
+//       .AddMultiLingual(o => o.BaseLanguage = "en")
+//       .UseEntityFrameworkCore<AppDbContext>()
+//       .SynchronizeLanguagesThroughDistributedCache()
+//       .Build();
+//
+// Left out here: this sample is one process, so there is nobody to tell.
+
 // The (sp, options) overload, so the interceptors are resolved per request and see its language.
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
     .UseSqlite(connectionString)

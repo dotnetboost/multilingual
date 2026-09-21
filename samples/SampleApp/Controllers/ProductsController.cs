@@ -1,3 +1,4 @@
+using DotNetBoost.MultiLingual.Core;
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
@@ -21,30 +22,84 @@ public sealed class ProductsController(
     AppDbContext db,
     ITranslationHydrator hydrator,
     ITranslationManager translations,
+    ILanguageCatalog languages,
+    MultiLingualOptions options,
     ILanguageContext language)
     : ControllerBase
 {
     /// <summary>
     /// Lists products, each resolved to the requested language
     /// (<c>Accept-Language</c>, then the system default).
+    /// <para>
+    /// <c>search</c> and <c>sort</c> work on the TRANSLATED name — the one this response shows —
+    /// in the database. A plain <c>Where(p =&gt; p.Name.Contains(…))</c> would only ever search
+    /// the English column; <c>WhereTranslation</c> / <c>OrderByTranslation</c> search and sort
+    /// the requested language, falling back exactly as the read does.
+    /// </para>
     /// </summary>
+    /// <param name="categoryId">Only products in this category.</param>
+    /// <param name="search">Part of the name, in the requested language (case-insensitive for ASCII on SQLite).</param>
+    /// <param name="sort"><c>name</c> or <c>-name</c> for the translated name; the id otherwise.</param>
+    /// <param name="ct">Cancellation.</param>
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<ProductResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<ProductResponse>>> GetAll(
         [FromQuery] int? categoryId,
+        [FromQuery] string? search,
+        [FromQuery] string? sort,
         CancellationToken ct)
     {
-        var query = db.Products.AsNoTracking().OrderBy(p => p.Id).AsQueryable();
+        var query = db.Products.AsNoTracking();
 
         if (categoryId is not null)
         {
             query = query.Where(p => p.CategoryId == categoryId);
         }
 
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{search.Trim()}%";
+            query = query.WhereTranslation(db, p => p.Name, name => name != null && EF.Functions.Like(name, pattern));
+        }
+
+        query = sort?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "id" => query.OrderBy(p => p.Id),
+            "name"             => query.OrderByTranslation(db, p => p.Name).ThenBy(p => p.Id),
+            "-name"            => query.OrderByTranslationDescending(db, p => p.Name).ThenBy(p => p.Id),
+            _                  => throw new ValidationException($"Unknown sort '{sort}'. Use 'id', 'name' or '-name'.")
+        };
+
         // One query for the products, one for all their translations.
         var products = await query.ToLocalizedListAsync(hydrator, ct);
 
         return Ok(products.Select(ToResponse).ToList());
+    }
+
+    /// <summary>
+    /// Lists products straight into a small DTO, with the category's name alongside — in the
+    /// requested language, in one query.
+    /// <para>
+    /// This is the projection shape most read endpoints use, and a plain <c>Select</c> cannot do
+    /// it here: <c>p.Name</c> and <c>p.Category.Name</c> are English columns in this sample's
+    /// base-language mode, so it would answer every language in English. <c>SelectTranslated</c>
+    /// reads each translatable property in the request's language instead, navigations included.
+    /// </para>
+    /// </summary>
+    [HttpGet("summaries")]
+    [ProducesResponseType<IReadOnlyList<ProductSummaryResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<ProductSummaryResponse>>> GetSummaries(CancellationToken ct)
+    {
+        var languageCode = language.Current.Code;
+
+        var summaries = await db.Products
+            .AsNoTracking()
+            .OrderBy(p => p.Id)
+            .SelectTranslated(db, p => new ProductSummaryResponse(p.Id, p.Sku, p.Price, p.Name, p.Category!.Name, languageCode))
+            .ToListAsync(ct);
+
+        return Ok(summaries);
     }
 
     [HttpGet("{id:int}")]
@@ -183,6 +238,65 @@ public sealed class ProductsController(
             .FirstLocalizedOrDefaultAsync(hydrator, ct);
 
         return Ok(ToResponse(saved!));
+    }
+
+    /// <summary>
+    /// Removes one language's stored translation of a product — every translatable property in
+    /// that language. Reads in it then fall back, exactly as for a language never written.
+    /// <para>
+    /// A <c>PUT</c> cannot do this: a <c>null</c> field there means "not supplied". And English,
+    /// the base language, is not a translation at all — it is the <c>Products</c> row — so it is
+    /// refused with a 409; change it with <c>PUT</c> instead.
+    /// </para>
+    /// </summary>
+    [HttpDelete("{id:int}/translations/{languageCode}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ClearTranslation(int id, string languageCode, CancellationToken ct)
+    {
+        var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
+            ?? throw new NotFoundException($"Product {id} was not found.");
+
+        var target = await languages.FindByCodeAsync(languageCode, ct)
+            ?? throw new NotFoundException($"Language '{languageCode}' was not found.");
+
+        if (options.IsBaseLanguage(target.Code))
+        {
+            throw new ConflictException(
+                $"'{target.Code}' is the base language: its text is the product's own columns, not a " +
+                "translation. Change it with PUT instead.");
+        }
+
+        translations.Clear(product, target.Code);
+        await db.SaveChangesAsync(ct);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Deletes every product in a category with one bulk statement, then removes the translation
+    /// rows that leaves behind.
+    /// <para>
+    /// <c>ExecuteDelete</c> never passes through <c>SaveChanges</c>, so the interceptor that
+    /// removes a deleted entity's translations never sees it. <c>PurgeOrphanedTranslationsAsync</c>
+    /// deletes, in the database, every translation whose entity is gone — here straight after the
+    /// bulk delete; in an application with many such deletes, on a schedule instead.
+    /// </para>
+    /// </summary>
+    /// <param name="categoryId">The category whose products to delete.</param>
+    /// <param name="ct">Cancellation.</param>
+    [HttpDelete]
+    [ProducesResponseType<BulkDeleteResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<BulkDeleteResponse>> DeleteByCategory(
+        [FromQuery, System.ComponentModel.DataAnnotations.Required] int? categoryId,
+        CancellationToken ct)
+    {
+        var deleted = await db.Products.Where(p => p.CategoryId == categoryId).ExecuteDeleteAsync(ct);
+        var purged  = await db.PurgeOrphanedTranslationsAsync(ct);
+
+        return Ok(new BulkDeleteResponse(deleted, purged));
     }
 
     /// <summary>
