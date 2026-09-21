@@ -59,3 +59,6 @@ Initial library, extracted from the MultilingualApi prototype.
   provider the change tracker is now restored to its pre-save state, as EF does when its own save
   fails. The same restore keeps base-language values the caller assigned when the primary save
   itself fails.
+- `MaterializedEntityRegistry` stopped recording entities past its 20,000 capacity without a
+  word, so they were served with `null` translations. It now logs a warning when it fills up,
+  and the next hydration throws rather than returning a partial set.

@@ -3,6 +3,7 @@ using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Models;
 using DotNetBoost.MultiLingual.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DotNetBoost.MultiLingual.ProviderTests.EfCore;
 
@@ -229,5 +230,35 @@ public sealed class EfCoreRecoveryTests
         Assert.Equal("Laptop", await shop.StoredColumnNameAsync(id));
         var arabic = Assert.Single(await shop.StoredTranslationsAsync(), t => t.LanguageCode == "ar");
         Assert.Equal("حاسوب", arabic.Value);
+    }
+
+    // ================================================================== registry capacity
+
+    [Fact]
+    public void Registry_PastCapacity_RefusesToDrainAPartialSet()
+    {
+        var registry = new MaterializedEntityRegistry(NullLogger<MaterializedEntityRegistry>.Instance);
+
+        for (var i = 0; i <= MaterializedEntityRegistry.Capacity; i++)
+            registry.Register(new ShopCategory { Id = i });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => registry.Drain());
+        Assert.Contains(MaterializedEntityRegistry.Capacity.ToString(System.Globalization.CultureInfo.InvariantCulture), ex.Message);
+
+        // The scope can carry on: the overflow is reported once, and the registry starts empty.
+        Assert.Empty(registry.Drain());
+        registry.Register(new ShopCategory { Id = -1 });
+        Assert.Single(registry.Drain());
+    }
+
+    [Fact]
+    public void Registry_AtCapacity_DrainsEverything()
+    {
+        var registry = new MaterializedEntityRegistry(NullLogger<MaterializedEntityRegistry>.Instance);
+
+        for (var i = 0; i < MaterializedEntityRegistry.Capacity; i++)
+            registry.Register(new ShopCategory { Id = i });
+
+        Assert.Equal(MaterializedEntityRegistry.Capacity, registry.Drain().Count);
     }
 }

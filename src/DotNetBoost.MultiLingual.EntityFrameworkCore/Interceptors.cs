@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Runtime.CompilerServices;
 
 namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
@@ -24,14 +25,18 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// Hydrating it would overwrite the caller's edit with the stored value, and the save that
 /// follows would then see nothing to write.</para>
 /// </summary>
-public sealed class MaterializedEntityRegistry
+/// <param name="logger">Reports the registry filling up.</param>
+public sealed partial class MaterializedEntityRegistry(ILogger<MaterializedEntityRegistry> logger)
 {
     private readonly List<Pending> _pending = [];
     private readonly HashSet<object> _seen = new(ReferenceEqualityComparer.Instance);
+    private bool _overflowed;
 
     /// <summary>
     /// Safety valve. If a caller streams a huge result set and never hydrates, stop growing
-    /// rather than pinning every row for the life of the scope.
+    /// rather than pinning every row for the life of the scope. Going past it is harmless until
+    /// something tries to hydrate: <see cref="Drain"/> then throws, rather than hand back a
+    /// partial set and leave the rest silently <c>null</c>.
     /// </summary>
     public const int Capacity = 20_000;
 
@@ -40,23 +45,50 @@ public sealed class MaterializedEntityRegistry
     {
         ArgumentNullException.ThrowIfNull(entity);
 
-        if (_pending.Count >= Capacity || !_seen.Add(entity))
+        if (_seen.Contains(entity))
             return;
 
+        if (_pending.Count >= Capacity)
+        {
+            if (!_overflowed)
+            {
+                _overflowed = true;
+                LogCapacityReached(Capacity);
+            }
+
+            return;
+        }
+
+        _seen.Add(entity);
         _pending.Add(new Pending(entity, Snapshot(entity)));
     }
 
     /// <summary>
     /// Takes everything queued so far that is still as it was materialized, and empties the queue.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// More than <see cref="Capacity"/> entities were materialized since the last drain, so some
+    /// were never recorded. The queue is emptied before throwing, so the scope can carry on.
+    /// </exception>
     public IReadOnlyList<object> Drain()
     {
-        if (_pending.Count == 0)
-            return [];
+        var overflowed = _overflowed;
+        var pending    = _pending.ToArray();
 
-        var pending = _pending.ToArray();
         _pending.Clear();
         _seen.Clear();
+        _overflowed = false;
+
+        if (overflowed)
+        {
+            throw new InvalidOperationException(
+                $"More than {Capacity} [MultiLingual] entities were materialized since the last hydration, " +
+                "so not all of them can be hydrated. Hydrate in smaller pages, or pass the entities to " +
+                "ITranslationManager.HydrateAsync directly — it has no limit.");
+        }
+
+        if (pending.Length == 0)
+            return [];
 
         var drained = new List<object>(pending.Length);
         foreach (var item in pending)
@@ -94,6 +126,11 @@ public sealed class MaterializedEntityRegistry
 
         return true;
     }
+
+    [LoggerMessage(EventId = 4000, Level = LogLevel.Warning,
+        Message = "More than {Capacity} [MultiLingual] entities were materialized in one scope without being " +
+                  "hydrated. Further entities are not recorded, and the next hydration will fail.")]
+    private partial void LogCapacityReached(int capacity);
 
     private sealed record Pending(object Entity, string?[] Materialized);
 }
