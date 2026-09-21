@@ -47,7 +47,7 @@ Initial library, extracted from the MultilingualApi prototype.
   interceptor's transaction used to make every save of a translatable entity throw under one;
   the save now runs inside the strategy — transaction, entity, translations and commit replayed
   together on a transient failure, with the change tracker restored between attempts.
-- `ITranslationManager.CompleteWrites`, split out of `WriteAsync`, so a provider that commits
+- `ITranslationWriter.CompleteWrites`, split out of `WriteAsync`, so a provider that commits
   after writing can record the values as stored only once the commit succeeds.
 
 - `SynchronizeLanguagesThroughDistributedCache()` lets every instance of an application see a
@@ -87,6 +87,12 @@ Initial library, extracted from the MultilingualApi prototype.
   the wrong case would have made live rows look orphaned.
 
 ### Changed (relative to the prototype)
+- The engine has two faces. `ITranslationManager` is for application code — hydrate, read,
+  stage, clear, and save or delete without a change tracker. `ITranslationWriter` holds the steps
+  a storage provider performs around a save — `CaptureValues`, `WriteAsync` / `Write`,
+  `CompleteWrites`, `DeleteEntitiesAsync` / `DeleteEntities`, `WithStore` — so the application
+  interface stays small and can grow without breaking implementers. One scoped instance backs
+  both.
 - A translation row whose value is `null` is removed by the store instead of stored, so a
   cleared translation leaves nothing behind. Part of the `ITranslationStore.UpsertManyAsync`
   contract; the store contract tests check it.
@@ -116,7 +122,7 @@ Initial library, extracted from the MultilingualApi prototype.
   commit succeeds.
 - A synchronous `SaveChanges` blocked on the interceptor's async work, which could deadlock
   under a single-threaded synchronization context (WPF, WinForms). It is now synchronous all
-  the way down, through new synchronous members: `ITranslationManager.Write` and
+  the way down, through new synchronous members: `ITranslationWriter.Write` and
   `DeleteEntities`, `ILanguageCatalog.GetAll`, `ITranslationStore.UpsertMany` and
   `DeleteEntities`, and `ILanguageStore.GetAll`. The store and catalog members have default
   implementations, so existing custom stores keep compiling; those defaults block on the async

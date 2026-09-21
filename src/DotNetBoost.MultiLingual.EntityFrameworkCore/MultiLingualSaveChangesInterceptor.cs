@@ -59,6 +59,9 @@ public sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvider 
 
     // Resolved on first use, not injected: the engine depends on the stores, the stores on the
     // DbContext, and this interceptor is created while that DbContext is still being built.
+    private ITranslationWriter? _writer;
+    private ITranslationWriter Writer => _writer ??= services.GetRequiredService<ITranslationWriter>();
+
     private ITranslationManager? _manager;
     private ITranslationManager Manager => _manager ??= services.GetRequiredService<ITranslationManager>();
 
@@ -203,12 +206,12 @@ public sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvider 
     }
 
     /// <summary>What <c>SavedChanges</c> has to do, now that every key exists.</summary>
-    private (ITranslationManager Writer, List<(string EntityName, string[] EntityIds)> Deletes, List<TranslationWrite> Writes)
+    private (ITranslationWriter Writer, List<(string EntityName, string[] EntityIds)> Deletes, List<TranslationWrite> Writes)
         PrepareApply(DbContext context, SaveState state)
     {
         // Through THIS context, so the rows join its connection and transaction — even when it is
         // not the context type the provider was registered with.
-        var writer = Manager.WithStore(new EfCoreTranslationStore(context));
+        var writer = Writer.WithStore(new EfCoreTranslationStore(context));
 
         var deletes = state.Deletes
             .GroupBy(d => d.EntityName, StringComparer.Ordinal)
@@ -242,7 +245,7 @@ public sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvider 
         if (state.DeferCompletion)
             state.Deferred.AddRange(writes);
         else
-            Manager.CompleteWrites(writes);
+            Writer.CompleteWrites(writes);
     }
 
     /// <inheritdoc/>
@@ -324,7 +327,7 @@ public sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvider 
 
                     // After ApplyBaseLanguageRules, which is careful to leave the in-memory values
                     // exactly as the caller assigned them.
-                    var values = Manager.CaptureValues(entry.Entity);
+                    var values = Writer.CaptureValues(entry.Entity);
                     if (values.Count > 0)
                         state.Writes.Add(new PendingWrite(entry, entityName, values));
                     break;

@@ -1,5 +1,6 @@
 using DotNetBoost.MultiLingual.Core;
 using DotNetBoost.MultiLingual.Core.Interfaces;
+using DotNetBoost.MultiLingual.Core.Models;
 using DotNetBoost.MultiLingual.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -278,7 +279,10 @@ public sealed class TranslationManagerTests
 
         var product = new Product { Id = 7, Name = "Lamp" };
         scope.Translations.Stage(product, "ar", Values("مصباح"));
-        await scope.Translations.WithStore(other).SaveAsync(product);
+
+        // A provider's save, step by step: capture, write through another store, complete.
+        var write = new TranslationWrite("Product", "7", scope.Writer.CaptureValues(product)) { Source = product };
+        await scope.Writer.WithStore(other).WriteAsync([write]);
 
         Assert.Empty(engine.Translations.All);
         Assert.Equal(2, other.All.Count);
@@ -286,5 +290,16 @@ public sealed class TranslationManagerTests
         // The staged values were consumed by the sibling, so the original has nothing to write.
         await scope.Translations.SaveAsync(product);
         Assert.Empty(engine.Translations.All);
+    }
+
+    [Fact]
+    public async Task ManagerAndWriter_AreOneInstancePerScope()
+    {
+        await using var engine = await Engine.StartAsync();
+        await using var first  = engine.Scope();
+        await using var second = engine.Scope();
+
+        Assert.Same(first.Translations, first.Writer);
+        Assert.NotSame(first.Writer, second.Writer);
     }
 }

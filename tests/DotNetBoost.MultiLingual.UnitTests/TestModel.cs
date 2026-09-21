@@ -130,5 +130,7 @@ internal sealed class TestScope(AsyncServiceScope scope) : IAsyncDisposable
 
     public ITranslationManager Translations => Get<ITranslationManager>();
 
+    public ITranslationWriter Writer => Get<ITranslationWriter>();
+
     public ValueTask DisposeAsync() => scope.DisposeAsync();
 }

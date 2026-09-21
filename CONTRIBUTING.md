@@ -45,7 +45,8 @@ public member of a shipped package needs XML docs.
 
 - **Core stays provider-neutral.** No EF Core, ASP.NET Core or driver references in
   `DotNetBoost.MultiLingual.Core`. If a provider needs something from the engine, add it to
-  `ITranslationManager` in provider-neutral terms.
+  `ITranslationWriter` in provider-neutral terms. `ITranslationManager` is for application code:
+  keep it small, since every member added to it is one more thing users have to understand.
 - **Stores stay dumb.** Rules go in the managers, so every provider gets them for free.
 - **A store change needs a contract test.** Add it to `TranslationStoreContractTests` /
   `LanguageStoreContractTests`, so every provider — including the in-memory doubles the other

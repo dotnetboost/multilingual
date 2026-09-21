@@ -67,13 +67,16 @@ public interface ILanguageCatalog
 }
 
 /// <summary>
-/// The provider-neutral translation engine. Every provider shares it:
+/// Translations for application code: read them, stage and clear them, and — without a change
+/// tracker — save and delete them.
 /// <list type="bullet">
-///   <item>EF Core calls it for you from its interceptors — application code never needs to.</item>
-///   <item>Providers without change tracking (Dapper, MongoDB) expose it directly: call
+///   <item>With EF Core, the interceptors read and write for you; application code only stages,
+///   clears, or reads everything stored for one entity.</item>
+///   <item>Without change tracking (Dapper, MongoDB) call
 ///   <see cref="HydrateAsync(IEnumerable{object}, CancellationToken)"/> after a query and
 ///   <see cref="SaveAsync"/> / <see cref="DeleteAsync"/> alongside your own writes.</item>
 /// </list>
+/// Storage providers use <see cref="ITranslationWriter"/> as well, for the steps of a save.
 /// </summary>
 public interface ITranslationManager
 {
@@ -135,28 +138,41 @@ public interface ITranslationManager
     /// </exception>
     void Clear(object entity, string languageCode, params string[] propertyNames);
 
-    // ------------------------------------------------------------------ provider building blocks
-
-    /// <summary>
-    /// Takes the translatable values of <paramref name="entity"/> that need writing, as
-    /// languageCode → (propertyName → value) — without touching the store. Providers call this
-    /// before the entity itself is saved, when a store-generated key may not exist yet.
-    /// </summary>
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> CaptureValues(object entity);
-
     /// <summary>
     /// Declares that the named properties of <paramref name="entity"/> currently hold the BASE
     /// language's values — read from the entity's own table rather than assigned by a caller — so
     /// the next save does not write them back as a translation in some other language.
     ///
     /// <para>
-    /// Only meaningful in base-language mode, and a no-op without one. Providers call it for the
-    /// properties a caller did not touch: a write endpoint deliberately loads without hydrating,
-    /// which in this mode still leaves the base column's value in the property, and writing that
-    /// back would quietly turn English text into an Arabic translation.
+    /// Only meaningful in base-language mode, and a no-op without one. Call it before
+    /// <see cref="SaveAsync"/> for the properties a caller did not touch, when saving without a
+    /// change tracker (Dapper, say — the EF Core provider does it for you): a write endpoint
+    /// deliberately loads without hydrating, which in this mode still leaves the base column's
+    /// value in the property, and writing that back would quietly turn English text into an Arabic
+    /// translation.
     /// </para>
     /// </summary>
     void MarkAsBaseLanguageValues(object entity, IEnumerable<string> propertyNames);
+}
+
+/// <summary>
+/// The write side of the engine, as the steps a storage provider performs around a save —
+/// capture before the entity is saved, write once its key exists, complete once the commit has
+/// succeeded. The EF Core provider's save interceptor is built on it; a Dapper or MongoDB provider
+/// would be too. Application code uses <see cref="ITranslationManager"/> instead.
+/// <para>
+/// Resolved from the same scope as <see cref="ITranslationManager"/>, and backed by the same
+/// instance, so both see the same staged values and hydration tracking.
+/// </para>
+/// </summary>
+public interface ITranslationWriter
+{
+    /// <summary>
+    /// Takes the translatable values of <paramref name="entity"/> that need writing, as
+    /// languageCode → (propertyName → value) — without touching the store. Providers call this
+    /// before the entity itself is saved, when a store-generated key may not exist yet.
+    /// </summary>
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> CaptureValues(object entity);
 
     /// <summary>
     /// Validates the language codes in <paramref name="writes"/> and upserts every value, then
@@ -180,7 +196,7 @@ public interface ITranslationManager
 
     /// <summary>
     /// Records that <paramref name="writes"/> are now durably stored: for each one with a
-    /// <see cref="TranslationWrite.Source"/>, discards what was <see cref="Stage"/>d for that
+    /// <see cref="TranslationWrite.Source"/>, discards what was <see cref="ITranslationManager.Stage"/>d for that
     /// instance and remembers what was written, so saving the same untouched instance again
     /// writes nothing. Writes without a source are ignored.
     /// </summary>
@@ -193,11 +209,11 @@ public interface ITranslationManager
     int DeleteEntities(string entityName, IReadOnlyCollection<string> entityIds);
 
     /// <summary>
-    /// A manager that shares this one's scope state (staged values, hydration tracking, current
-    /// language) but reads and writes through <paramref name="store"/>. Providers use it to keep
-    /// translation writes inside the unit of work that is saving the entity.
+    /// A writer that shares this one's scope state (staged values, hydration tracking, current
+    /// language) but writes through <paramref name="store"/>. Providers use it to keep translation
+    /// writes inside the unit of work that is saving the entity.
     /// </summary>
-    ITranslationManager WithStore(ITranslationStore store);
+    ITranslationWriter WithStore(ITranslationStore store);
 }
 
 /// <summary>

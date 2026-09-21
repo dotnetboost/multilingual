@@ -2,8 +2,8 @@ namespace DotNetBoost.MultiLingual.Core.Models;
 
 /// <summary>
 /// The translations to persist for one entity instance: languageCode → (propertyName → value).
-/// Produced by <see cref="Interfaces.ITranslationManager.CaptureValues"/> before the entity
-/// is saved, and handed to <see cref="Interfaces.ITranslationManager.WriteAsync"/> once its
+/// Produced by <see cref="Interfaces.ITranslationWriter.CaptureValues"/> before the entity
+/// is saved, and handed to <see cref="Interfaces.ITranslationWriter.WriteAsync"/> once its
 /// key is known.
 /// </summary>
 /// <param name="EntityName">Logical entity name, from <see cref="Metadata.MultiLingualMetadata.EntityNameFor"/>.</param>

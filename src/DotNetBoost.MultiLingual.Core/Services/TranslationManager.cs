@@ -18,12 +18,12 @@ internal sealed partial class TranslationManager(
     TranslationWriteBuffer writeBuffer,
     HydratedValueTracker tracker,
     MultiLingualOptions options,
-    ILogger<TranslationManager> logger) : ITranslationManager
+    ILogger<TranslationManager> logger) : ITranslationManager, ITranslationWriter
 {
     private static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> NoValues =
         new Dictionary<string, IReadOnlyDictionary<string, string?>>();
 
-    public ITranslationManager WithStore(ITranslationStore store)
+    public ITranslationWriter WithStore(ITranslationStore store)
     {
         ArgumentNullException.ThrowIfNull(store);
         return new TranslationManager(store, catalog, languageContext, keys, writeBuffer, tracker, options, logger);

@@ -47,7 +47,7 @@ public sealed partial class MultiLingualSaveChangesInterceptor
                 verifySucceeded: null,
                 ct);
 
-            Manager.CompleteWrites(state.Deferred);
+            Writer.CompleteWrites(state.Deferred);
             return saved;
         }
         finally
@@ -82,7 +82,7 @@ public sealed partial class MultiLingualSaveChangesInterceptor
                 },
                 verifySucceeded: null);
 
-            Manager.CompleteWrites(state.Deferred);
+            Writer.CompleteWrites(state.Deferred);
             return saved;
         }
         finally

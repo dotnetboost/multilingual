@@ -5,8 +5,8 @@ Dapper and MongoDB are planned. This is what either — or any other backend —
 ## 1. Implement the two stores
 
 `ITranslationStore` and `ILanguageStore` in `DotNetBoost.MultiLingual.Core.Interfaces`. They are
-deliberately dumb: no validation, no fallback, no change detection — that all lives in
-`ITranslationManager` and `ILanguageManager`. What a store does have to get right:
+deliberately dumb: no validation, no fallback, no change detection — that all lives in the
+engine and `ILanguageManager`. What a store does have to get right:
 
 | Rule | Why |
 |---|---|
@@ -44,14 +44,30 @@ public static MultiLingualBuilder UseDapper(this MultiLingualBuilder builder, Fu
 If the backend knows entity keys better than the naming convention (`[Key]`, `Id`,
 `{Type}Id`), replace `IEntityKeyAccessor` too — MongoDB could read `[BsonId]` / the class map.
 
-## 3. Keep translated properties out of the entity's own storage
+## 3. Save through `ITranslationWriter`
+
+A provider that saves entities for its users — as the EF Core interceptor does — drives the write
+side of the engine in three steps, resolved from the same scope as the application's
+`ITranslationManager`:
+
+| Step | Call | Why then |
+|---|---|---|
+| Before the entity is saved | `CaptureValues(entity)` | The in-memory values are the caller's; a store-generated key does not exist yet. |
+| Once every key exists | `WithStore(store).WriteAsync(writes)` (and `DeleteEntitiesAsync`) | Inside the same unit of work as the entity, through a store bound to it. |
+| Once the commit succeeds | `CompleteWrites(writes)` | Clears staged values and records what was stored. Earlier, a failed commit's retry would skip them. |
+
+Pass writes to `WriteAsync` without a `Source` when you complete them yourself after the commit;
+with a `Source`, `WriteAsync` completes them at once. Each step has a synchronous twin for a
+synchronous save.
+
+## 4. Keep translated properties out of the entity's own storage
 
 - **MongoDB:** unmap them from the class map (`BsonClassMap` → `UnmapMember`) for every type
   `MultiLingualMetadata.For(type)` returns properties for.
 - **Dapper:** nothing to do on read — there is no column, so they stay `null`. Document that
   INSERT/UPDATE statements must not reference them.
 
-## 4. Pass the contract suites
+## 5. Pass the contract suites
 
 Add the provider to `tests/DotNetBoost.MultiLingual.ProviderTests` (or `IntegrationTests` when it
 needs a real server) by inheriting the two suites:

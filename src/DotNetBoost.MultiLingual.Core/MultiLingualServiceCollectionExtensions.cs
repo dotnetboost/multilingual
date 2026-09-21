@@ -42,7 +42,10 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddScoped<ILanguageContext, LanguageContext>();
             services.TryAddScoped<TranslationWriteBuffer>();
             services.TryAddScoped<HydratedValueTracker>();
-            services.TryAddScoped<ITranslationManager, TranslationManager>();
+            // One instance behind both faces of the engine, so they share the scope's state.
+            services.TryAddScoped<TranslationManager>();
+            services.TryAddScoped<ITranslationManager>(sp => sp.GetRequiredService<TranslationManager>());
+            services.TryAddScoped<ITranslationWriter>(sp => sp.GetRequiredService<TranslationManager>());
             services.TryAddScoped<ILanguageManager, LanguageManager>();
 
             var builder = new MultiLingualBuilder(services);

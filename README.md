@@ -32,7 +32,7 @@ adoptable on a database that already has `Name` and `Description` full of data.
 
 | Package | What it is |
 |---|---|
-| `DotNetBoost.MultiLingual.Core` | The provider-neutral engine: attributes, `ITranslationManager`, `ILanguageManager`, the language catalog, and the store contracts `ITranslationStore` / `ILanguageStore`. No EF Core, no ASP.NET Core. |
+| `DotNetBoost.MultiLingual.Core` | The provider-neutral engine: attributes, `ITranslationManager` (for applications) and `ITranslationWriter` (for storage providers), `ILanguageManager`, the language catalog, and the store contracts `ITranslationStore` / `ILanguageStore`. No EF Core, no ASP.NET Core. |
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | EF Core provider. Maps translatable properties according to the configured mode and reads/writes them transparently through interceptors. SQL Server, PostgreSQL, SQLite. |
 | `DotNetBoost.MultiLingual.API` | ASP.NET Core: `Accept-Language` middleware, language management endpoints, ProblemDetails mapping, and (net10.0) an OpenAPI transformer. |
 | `DotNetBoost.MultiLingual.Dapper` | *Planned.* |
@@ -380,8 +380,8 @@ await db.SaveChangesAsync();
 
 ## Providers without change tracking
 
-Dapper and MongoDB have no interceptors to hook, so their users will call the engine directly —
-the same `ITranslationManager` the EF interceptors call:
+Dapper and MongoDB have no interceptors to hook, so their users call `ITranslationManager`
+directly — reading, saving and deleting translations alongside their own queries:
 
 ```csharp
 var products = (await connection.QueryAsync<Product>(sql)).ToList();
