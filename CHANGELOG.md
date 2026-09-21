@@ -49,3 +49,7 @@ Initial library, extracted from the MultilingualApi prototype.
 - A materialization interceptor instance per request made EF Core build a new internal service
   provider per request, failing with `ManyServiceProvidersCreatedWarning` after twenty requests.
 - A default language could be created inactive.
+- A value assigned to a translatable property after loading could be overwritten by a later
+  localized query in the same scope: the entity stayed queued for hydration, the query drained
+  the queue, and the save that followed found nothing to write. Entities whose translatable
+  values changed since materialization are now left out of hydration.

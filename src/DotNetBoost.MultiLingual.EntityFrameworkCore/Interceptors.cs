@@ -16,10 +16,17 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// Collects every <c>[MultiLingual]</c> entity EF materializes during the scope, so the
 /// hydrator can fill them all in — including ones reached through <c>Include</c> — with one
 /// query per entity type.
+///
+/// <para><b>Edited entities are left alone.</b> Each entity's translatable values are
+/// remembered as they were materialized. One that no longer matches by the time it is drained
+/// was assigned by the caller — typically an entity loaded for update, which a write endpoint
+/// never hydrates, left queued until some later read in the same scope drains the registry.
+/// Hydrating it would overwrite the caller's edit with the stored value, and the save that
+/// follows would then see nothing to write.</para>
 /// </summary>
 public sealed class MaterializedEntityRegistry
 {
-    private readonly List<object> _pending = [];
+    private readonly List<Pending> _pending = [];
     private readonly HashSet<object> _seen = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
@@ -31,26 +38,64 @@ public sealed class MaterializedEntityRegistry
     /// <summary>Queues <paramref name="entity"/> for the next hydration.</summary>
     public void Register(object entity)
     {
+        ArgumentNullException.ThrowIfNull(entity);
+
         if (_pending.Count >= Capacity || !_seen.Add(entity))
             return;
 
-        _pending.Add(entity);
+        _pending.Add(new Pending(entity, Snapshot(entity)));
     }
 
-    /// <summary>Takes everything queued so far and empties the queue.</summary>
+    /// <summary>
+    /// Takes everything queued so far that is still as it was materialized, and empties the queue.
+    /// </summary>
     public IReadOnlyList<object> Drain()
     {
         if (_pending.Count == 0)
             return [];
 
-        var drained = _pending.ToArray();
+        var pending = _pending.ToArray();
         _pending.Clear();
         _seen.Clear();
+
+        var drained = new List<object>(pending.Length);
+        foreach (var item in pending)
+        {
+            if (IsUntouched(item))
+                drained.Add(item.Entity);
+        }
+
         return drained;
     }
 
     /// <summary>Number of entities waiting for hydration.</summary>
     public int PendingCount => _pending.Count;
+
+    private static string?[] Snapshot(object entity)
+    {
+        var properties = MultiLingualMetadata.For(entity.GetType());
+        var values = new string?[properties.Count];
+
+        for (var i = 0; i < values.Length; i++)
+            values[i] = properties[i].GetValue(entity);
+
+        return values;
+    }
+
+    private static bool IsUntouched(Pending item)
+    {
+        var properties = MultiLingualMetadata.For(item.Entity.GetType());
+
+        for (var i = 0; i < properties.Count; i++)
+        {
+            if (!string.Equals(properties[i].GetValue(item.Entity), item.Materialized[i], StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
+    }
+
+    private sealed record Pending(object Entity, string?[] Materialized);
 }
 
 /// <summary>
