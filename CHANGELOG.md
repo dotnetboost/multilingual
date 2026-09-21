@@ -59,6 +59,9 @@ Initial library, extracted from the MultilingualApi prototype.
 
 - `ITranslationManager.Clear(entity, languageCode, params propertyNames)` removes a stored
   translation on the next save. Assigning `null` to a property still means "not supplied".
+- `WhereTranslation`, `OrderByTranslation`, `OrderByTranslationDescending`, `ThenByTranslation`
+  and `ThenByTranslationDescending` filter and sort EF Core queries on translated text in the
+  database, following the same fallback chain as reads.
 - A write for a key longer than `EntityKey.MaxLength` (64) is refused with a message naming the
   entity, instead of failing in the database — or, on SQLite, being stored untruncated.
 - The integration tests run on net8.0 as well as net10.0, against EF Core 8's SQL Server and

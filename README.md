@@ -163,6 +163,22 @@ translations.Clear(product, "fr");                         // every translatable
 await db.SaveChangesAsync();
 ```
 
+**Filtering and sorting.** A translatable property has no column in the default mode, so
+`Where(p => p.Name.Contains(term))` cannot run in SQL. These build the same thing over the
+translations table, comparing the value a read would show (requested language, then the
+default, then the base column):
+
+```csharp
+var page = await db.Products
+    .WhereTranslation(db, p => p.Name, name => name!.Contains(term))
+    .OrderByTranslation(db, p => p.Name)          // also …Descending, ThenBy…
+    .Skip(skip).Take(take)
+    .ToLocalizedListAsync(hydrator, ct);
+```
+
+Each adds a correlated subquery per language, served by the translations key — fine for a page
+of results, not a substitute for a search engine on a large catalogue.
+
 **EF Core specifics.** `ApplyMultiLingual()` removes translatable properties from the model — or,
 with a base language configured, leaves them mapped. The save interceptor captures values in
 `SavingChanges` and writes them in `SavedChanges`, once generated keys exist, in the same
@@ -201,7 +217,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 | Missing translation falls back to | default language, then `null` | default language, then the base column |
 | Reading the base language costs | 2 queries | 1 query — nothing is fetched |
 | `SELECT * FROM Products` | no names | names, in the base language |
-| Filter/sort in SQL | never | in the base language |
+| Filter/sort in SQL | `WhereTranslation` / `OrderByTranslation` | directly in the base language; those helpers for the others |
 | Adding a translatable property | no migration | a migration, for the new column |
 
 **Why it is not just "the default language".** The default language is a row in the language
