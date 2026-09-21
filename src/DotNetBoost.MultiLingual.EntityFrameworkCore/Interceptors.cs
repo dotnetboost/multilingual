@@ -165,6 +165,14 @@ public sealed class MultiLingualMaterializationInterceptor : IMaterializationInt
 /// incompatible with a retrying execution strategy — with <c>EnableRetryOnFailure</c>, wrap the
 /// save in <c>Database.CreateExecutionStrategy().ExecuteAsync(...)</c> yourself.)</para>
 ///
+/// <para><b>A failed save can be retried.</b> EF accepts the primary save's changes before
+/// <c>SavedChanges</c> runs, so a translation write that fails afterwards would otherwise leave
+/// every entity <c>Unchanged</c> — carrying keys the rollback just un-issued — and a retry would
+/// write nothing. On a relational provider the change tracker is therefore put back exactly as
+/// it was before the save: added entities added again with temporary keys, modified ones
+/// modified with their original values, deleted ones deleted. This matches what EF does when
+/// its own save fails, whether the transaction was this interceptor's or the caller's.</para>
+///
 /// <para><b>Scope.</b> State is kept per <see cref="DbContext"/> instance, so several contexts
 /// can share one scope. Context pooling (<c>AddDbContextPool</c>) is not supported: pooled
 /// options are built once, from the root provider, and cannot carry per-request services.</para>
@@ -259,6 +267,7 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         catch
         {
             await RollbackOwnedTransactionAsync(state);
+            state.Snapshot?.Restore(context);
             throw;
         }
         finally
@@ -286,6 +295,10 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
             return;
 
         await RollbackOwnedTransactionAsync(state);
+
+        // EF leaves entity states alone when its own save fails, but Begin may already have
+        // adjusted base-language properties; without this a retry would lose the authored text.
+        state.Snapshot?.Restore(context);
         state.Reset();
     }
 
@@ -306,7 +319,16 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
 
         state.Reset();
 
-        foreach (var entry in context.ChangeTracker.Entries().ToList())
+        var entries = context.ChangeTracker.Entries().ToList();
+        if (!entries.Exists(e => MultiLingualMetadata.IsMultiLingual(e.Metadata.ClrType)))
+            return state;
+
+        // Before ApplyBaseLanguageRules touches anything. Only relational saves run inside a
+        // transaction, so only there does a failure mean the database never saw the changes.
+        if (context.Database.IsRelational())
+            state.Snapshot = TrackerSnapshot.Take(entries);
+
+        foreach (var entry in entries)
         {
             var clrType = entry.Metadata.ClrType;
             if (!MultiLingualMetadata.IsMultiLingual(clrType))
@@ -340,6 +362,9 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
                     break;
             }
         }
+
+        if (!state.HasWork)
+            state.Snapshot = null;
 
         return state;
     }
@@ -471,6 +496,7 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         public List<PendingWrite> Writes { get; } = [];
         public List<PendingDelete> Deletes { get; } = [];
         public IDbContextTransaction? OwnedTransaction { get; set; }
+        public TrackerSnapshot? Snapshot { get; set; }
         public bool IsApplying { get; set; }
         public bool HasWork => Writes.Count > 0 || Deletes.Count > 0;
 
@@ -478,8 +504,121 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         {
             Writes.Clear();
             Deletes.Clear();
+            Snapshot = null;
         }
     }
+
+    /// <summary>
+    /// The change tracker as it stood before a save: every entry the save will change, and every
+    /// tracked translation row. <see cref="Restore"/> puts it back after a rolled-back save.
+    /// </summary>
+    private sealed class TrackerSnapshot
+    {
+        private readonly List<EntrySnapshot> _entries;
+        private readonly HashSet<object> _translations;
+
+        private TrackerSnapshot(List<EntrySnapshot> entries, HashSet<object> translations)
+        {
+            _entries      = entries;
+            _translations = translations;
+        }
+
+        public static TrackerSnapshot Take(IEnumerable<EntityEntry> entries)
+        {
+            var changed      = new List<EntrySnapshot>();
+            var translations = new HashSet<object>(ReferenceEqualityComparer.Instance);
+
+            foreach (var entry in entries)
+            {
+                if (entry.Entity is Translation)
+                    translations.Add(entry.Entity);
+
+                if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+                    continue;
+
+                changed.Add(new EntrySnapshot(
+                    entry,
+                    entry.State,
+                    entry.CurrentValues.Clone(),
+                    entry.State == EntityState.Added ? null : entry.OriginalValues.Clone(),
+                    entry.Properties.Where(p => p.IsModified).Select(p => p.Metadata.Name).ToHashSet(StringComparer.Ordinal),
+                    entry.Properties.Where(p => p.IsTemporary).Select(p => p.Metadata.Name).ToArray()));
+            }
+
+            return new TrackerSnapshot(changed, translations);
+        }
+
+        public void Restore(DbContext context)
+        {
+            // Translation rows the failed write started tracking would collide with the retry's.
+            foreach (var entry in context.ChangeTracker.Entries<Translation>().ToList())
+            {
+                if (!_translations.Contains(entry.Entity))
+                    entry.State = EntityState.Detached;
+            }
+
+            // States first: deleted entries are detached by now, and must be tracked again before
+            // their values can be set.
+            foreach (var saved in _entries)
+            {
+                if (saved.Entry.State != saved.State)
+                    saved.Entry.State = saved.State;
+            }
+
+            // Then the temporary keys of added entries, principals and dependents alike, before any
+            // other value. Fix-up carries a principal's key into its dependents' foreign keys, so
+            // restoring keys first keeps every relationship intact.
+            foreach (var saved in _entries.Where(e => e.State == EntityState.Added))
+            {
+                foreach (var name in saved.Temporary)
+                {
+                    var property = saved.Entry.Property(name);
+                    if (property.Metadata.IsPrimaryKey())
+                        property.CurrentValue = saved.Current[name];
+                }
+            }
+
+            foreach (var saved in _entries)
+            {
+                foreach (var property in saved.Entry.Properties)
+                {
+                    var metadata = property.Metadata;
+
+                    // Keys of tracked entries cannot change, and added ones were restored above.
+                    if (metadata.IsPrimaryKey())
+                        continue;
+
+                    var current = saved.Current[metadata];
+                    if (!Equals(property.CurrentValue, current))
+                        property.CurrentValue = current;
+
+                    if (saved.Original is { } original)
+                    {
+                        var value = original[metadata];
+                        if (!Equals(property.OriginalValue, value))
+                            property.OriginalValue = value;
+                    }
+
+                    if (saved.State == EntityState.Modified)
+                        property.IsModified = saved.Modified.Contains(metadata.Name);
+                }
+
+                if (saved.State == EntityState.Added)
+                {
+                    foreach (var name in saved.Temporary)
+                        saved.Entry.Property(name).IsTemporary = true;
+                }
+            }
+        }
+    }
+
+    private sealed record EntrySnapshot(
+        EntityEntry Entry,
+        EntityState State,
+        PropertyValues Current,
+        PropertyValues? Original,
+        HashSet<string> Modified,
+        string[] Temporary);
 
     private sealed record PendingWrite(
         EntityEntry Entry,

@@ -53,3 +53,9 @@ Initial library, extracted from the MultilingualApi prototype.
   localized query in the same scope: the entity stayed queued for hydration, the query drained
   the queue, and the save that followed found nothing to write. Entities whose translatable
   values changed since materialization are now left out of hydration.
+- A translation write that failed after the primary save left the change tracker claiming
+  everything was saved — entities `Unchanged`, carrying keys the rollback had un-issued — so a
+  retry wrote nothing, or wrote translations for rows that did not exist. On a relational
+  provider the change tracker is now restored to its pre-save state, as EF does when its own save
+  fails. The same restore keeps base-language values the caller assigned when the primary save
+  itself fails.

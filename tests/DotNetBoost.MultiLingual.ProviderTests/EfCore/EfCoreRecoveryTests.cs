@@ -81,4 +81,153 @@ public sealed class EfCoreRecoveryTests
 
         Assert.Equal("Portable", product.Name);
     }
+
+    // ================================================================== failed save, then retry
+
+    [Fact]
+    public async Task FailedTranslationWrite_LeavesAnAddedEntityAdded_SoARetrySavesIt()
+    {
+        await using var shop = await Shop.StartAsync();
+        await using var scope = await shop.ScopeInAsync("en");
+
+        var product = new ShopProduct { Sku = "PEN", Name = "Pen" };
+        scope.Translations.Stage(product, "de", Name("Stift"));   // no such language yet
+        scope.Db.Products.Add(product);
+
+        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+
+        var entry = scope.Db.Entry(product);
+        Assert.Equal(EntityState.Added, entry.State);
+        Assert.True(entry.Property(p => p.Id).IsTemporary);
+
+        await CreateLanguageAsync(shop, "de");
+        await scope.Db.SaveChangesAsync();
+
+        await using var check = shop.Scope();
+        var stored = await check.Db.Products.AsNoTracking().SingleAsync();
+        Assert.Equal(stored.Id, product.Id);
+
+        var rows = await shop.StoredTranslationsAsync();
+        Assert.All(rows, t => Assert.Equal(product.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), t.EntityId));
+        Assert.Equal(["de", "en"], rows.Select(t => t.LanguageCode).Order());
+    }
+
+    [Fact]
+    public async Task FailedTranslationWrite_KeepsAnAddedGraphLinked_SoARetrySavesBoth()
+    {
+        await using var shop = await Shop.StartAsync();
+        await using var scope = await shop.ScopeInAsync("en");
+
+        var category = new ShopCategory { Slug = "pens", Name = "Pens" };
+        var product  = new ShopProduct { Sku = "PEN", Name = "Pen", Category = category };
+        scope.Translations.Stage(product, "de", Name("Stift"));
+        scope.Db.Products.Add(product);
+
+        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+
+        Assert.Equal(EntityState.Added, scope.Db.Entry(category).State);
+        Assert.Same(category, product.Category);
+        Assert.Equal(category.Id, product.CategoryId);
+        Assert.True(scope.Db.Entry(product).Property(p => p.CategoryId).IsTemporary);
+
+        await CreateLanguageAsync(shop, "de");
+        await scope.Db.SaveChangesAsync();
+
+        await using var check = shop.Scope();
+        var stored = await check.Db.Products.AsNoTracking().Include(p => p.Category).SingleAsync();
+        Assert.Equal("pens", stored.Category!.Slug);
+        Assert.Equal(category.Id, stored.CategoryId);
+    }
+
+    [Fact]
+    public async Task FailedTranslationWrite_WithSyncSaveChanges_IsAlsoRetryable()
+    {
+        await using var shop = await Shop.StartAsync();
+        await using var scope = await shop.ScopeInAsync("en");
+
+        var product = new ShopProduct { Sku = "PEN", Name = "Pen" };
+        scope.Translations.Stage(product, "de", Name("Stift"));
+        scope.Db.Products.Add(product);
+
+        Assert.Throws<LanguageNotFoundException>(() => scope.Db.SaveChanges());
+        Assert.Equal(EntityState.Added, scope.Db.Entry(product).State);
+
+        await CreateLanguageAsync(shop, "de");
+        scope.Db.SaveChanges();
+
+        Assert.Equal(2, (await shop.StoredTranslationsAsync()).Count);
+    }
+
+    [Fact]
+    public async Task FailedTranslationWrite_LeavesAModifiedEntityModified_SoARetrySavesIt()
+    {
+        await using var shop = await Shop.StartAsync();
+        var id = await SeedProductAsync(shop);
+        await using var scope = await shop.ScopeInAsync("en");
+
+        var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        product.Price = 42;
+        scope.Translations.Stage(product, "de", Name("Laptop (de)"));
+
+        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+
+        var entry = scope.Db.Entry(product);
+        Assert.Equal(EntityState.Modified, entry.State);
+        Assert.True(entry.Property(p => p.Price).IsModified);
+        Assert.False(entry.Property(p => p.Sku).IsModified);
+        Assert.Equal(10m, entry.Property(p => p.Price).OriginalValue);
+
+        await CreateLanguageAsync(shop, "de");
+        await scope.Db.SaveChangesAsync();
+
+        await using var check = shop.Scope();
+        Assert.Equal(42m, (await check.Db.Products.AsNoTracking().SingleAsync(p => p.Id == id)).Price);
+        Assert.Contains(await shop.StoredTranslationsAsync(), t => t.LanguageCode == "de");
+    }
+
+    [Fact]
+    public async Task FailedTranslationWrite_LeavesADeletedEntityDeleted_SoARetryDeletesIt()
+    {
+        await using var shop = await Shop.StartAsync();
+        var id = await SeedProductAsync(shop);
+        await using var scope = await shop.ScopeInAsync("en");
+
+        var doomed = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        scope.Db.Products.Remove(doomed);
+
+        var category = await scope.Db.Categories.SingleAsync();
+        scope.Translations.Stage(category, "de", Name("Bücher"));
+
+        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        Assert.Equal(EntityState.Deleted, scope.Db.Entry(doomed).State);
+
+        await CreateLanguageAsync(shop, "de");
+        await scope.Db.SaveChangesAsync();
+
+        await using var check = shop.Scope();
+        Assert.False(await check.Db.Products.AnyAsync());
+        Assert.DoesNotContain(await shop.StoredTranslationsAsync(), t => t.EntityName == "ShopProduct");
+    }
+
+    [Fact]
+    public async Task FailedTranslationWrite_InBaseLanguageMode_KeepsTheAuthoredValue_ForTheRetry()
+    {
+        await using var shop = await BaseShop.StartAsync();
+        var id = await shop.CreateProductAsync("LAPTOP", "Laptop");
+        await using var scope = await shop.ScopeInAsync("ar");
+
+        var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        product.Name = "حاسوب";
+        scope.Translations.Stage(product, "de", Name("Laptop (de)"));
+
+        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        Assert.True(scope.Db.Entry(product).Property(p => p.Name).IsModified);
+
+        await CreateLanguageAsync(shop, "de");
+        await scope.Db.SaveChangesAsync();
+
+        Assert.Equal("Laptop", await shop.StoredColumnNameAsync(id));
+        var arabic = Assert.Single(await shop.StoredTranslationsAsync(), t => t.LanguageCode == "ar");
+        Assert.Equal("حاسوب", arabic.Value);
+    }
 }
