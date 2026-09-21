@@ -60,7 +60,13 @@ public sealed class SqlServerFixture : IAsyncLifetime
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();
 
     /// <summary>Creates an empty database and returns a connection string pointing at it.</summary>
-    public async Task<string> CreateDatabaseAsync()
+    public Task<string> CreateDatabaseAsync() => CreateDatabaseAsync(collation: null);
+
+    /// <summary>
+    /// As <see cref="CreateDatabaseAsync()"/>, with <paramref name="collation"/> instead of the
+    /// server's default (case-insensitive) one when given.
+    /// </summary>
+    public async Task<string> CreateDatabaseAsync(string? collation)
     {
         var name = $"test_{Interlocked.Increment(ref _databaseCounter)}_{Guid.NewGuid():N}";
 
@@ -68,8 +74,8 @@ public sealed class SqlServerFixture : IAsyncLifetime
         {
             await admin.OpenAsync();
             await using var cmd = admin.CreateCommand();
-            // Database names cannot be parameterised; the name is generated here, never user input.
-            cmd.CommandText = $"CREATE DATABASE [{name}]";
+            // Neither name nor collation can be parameterised; both come from test code, never user input.
+            cmd.CommandText = collation is null ? $"CREATE DATABASE [{name}]" : $"CREATE DATABASE [{name}] COLLATE {collation}";
             await cmd.ExecuteNonQueryAsync();
         }
 

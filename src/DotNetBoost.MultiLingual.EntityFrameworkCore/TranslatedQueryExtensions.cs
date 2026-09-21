@@ -174,7 +174,7 @@ public static class TranslatedQueryExtensions
             ? new[] { resolution.Language, resolution.Fallback }
             : [resolution.Language];
 
-        var key        = KeyAsString(context, entity);
+        var key        = EntityKeys.KeyAsString(context, entity);
         var entityName = MultiLingualMetadata.EntityNameFor(entity.Type);
 
         var chain = codes
@@ -208,34 +208,6 @@ public static class TranslatedQueryExtensions
             .FirstOrDefault();
 
         return new ParameterReplacer(template.Parameters[0], key).Visit(template.Body);
-    }
-
-    /// <summary>
-    /// The entity's key as the string <see cref="EntityKey.ToKeyString"/> stores. Guids are
-    /// lower-cased: providers disagree on the case of a Guid cast to text, and the stored form is
-    /// lower case.
-    /// </summary>
-    private static Expression KeyAsString(DbContext context, Expression entity)
-    {
-        var entityType = context.Model.FindEntityType(entity.Type) ?? throw new InvalidOperationException(
-            $"'{entity.Type.Name}' is not an entity type of '{context.GetType().Name}'.");
-
-        var keyProperty = EntityKeys.SingleKeyProperty(entityType);
-
-        Expression key = keyProperty.PropertyInfo is not null || keyProperty.FieldInfo is not null
-            ? Expression.PropertyOrField(entity, keyProperty.Name)
-            : Expression.Call(typeof(EF), nameof(EF.Property), [keyProperty.ClrType], entity, Expression.Constant(keyProperty.Name));
-
-        var keyType = Nullable.GetUnderlyingType(key.Type) ?? key.Type;
-
-        if (keyType == typeof(string))
-            return key;
-
-        var asString = Expression.Call(key, key.Type.GetMethod(nameof(ToString), Type.EmptyTypes)!);
-
-        return keyType == typeof(Guid)
-            ? Expression.Call(asString, typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!)
-            : asString;
     }
 
     private static MemberInfo TranslatableMember<T>(Expression<Func<T, string?>> property)

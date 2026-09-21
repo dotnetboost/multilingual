@@ -145,6 +145,35 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task PurgeOrphans_RemovesOnlyRowsWhoseEntityIsGone_IntAndGuidKeys()
+    {
+        await SeedAsync();
+        var keptDocument = Guid.NewGuid();
+        var goneDocument = Guid.NewGuid();
+
+        await using (var write = await ScopeInAsync("fr"))
+        {
+            var db = write.ServiceProvider.GetRequiredService<ShopDbContext>();
+            db.Documents.AddRange(new ShopDocument { Id = keptDocument, Title = "Gardé" }, new ShopDocument { Id = goneDocument, Title = "Parti" });
+            await db.SaveChangesAsync();
+        }
+
+        await using var scope = _root.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
+
+        // Nothing is orphaned yet: every live row — int and Guid keyed — must survive the match.
+        Assert.Equal(0, await context.PurgeOrphanedTranslationsAsync());
+
+        await context.Products.Where(p => p.Sku == "LAPTOP").ExecuteDeleteAsync();   // en + fr rows
+        await context.Documents.Where(d => d.Id == goneDocument).ExecuteDeleteAsync(); // fr row
+
+        Assert.Equal(3, await context.PurgeOrphanedTranslationsAsync());
+
+        var remaining = await context.Translations.AsNoTracking().Select(t => t.Value).ToListAsync();
+        Assert.Equal(["Clavier", "Gardé", "Keyboard", "Mouse"], remaining.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task Clear_RemovesTheRow_ThroughSaveChanges()
     {
         await SeedAsync();
@@ -175,6 +204,21 @@ public sealed class PostgresTranslatedQueryTests(PostgreSqlFixture fixture) : Tr
 public sealed class SqlServerTranslatedQueryTests(SqlServerFixture fixture) : TranslatedQueryIntegrationTests
 {
     protected override Task<string> CreateDatabaseAsync() => fixture.CreateDatabaseAsync();
+
+    protected override void UseProvider(DbContextOptionsBuilder options, string connectionString) => options.UseSqlServer(connectionString);
+}
+
+/// <summary>
+/// The same suite on a case-sensitive SQL Server database. The default collation compares key
+/// text case-insensitively and so would hide a key compared in the wrong case — which for the
+/// orphan purge means deleting live rows. SQL Server casts a Guid to upper-case text; the stored
+/// form is lower case.
+/// </summary>
+[Collection(SqlServerCollection.Name)]
+[Trait("Category", "Integration")]
+public sealed class SqlServerCaseSensitiveTranslatedQueryTests(SqlServerFixture fixture) : TranslatedQueryIntegrationTests
+{
+    protected override Task<string> CreateDatabaseAsync() => fixture.CreateDatabaseAsync("Latin1_General_100_CS_AS");
 
     protected override void UseProvider(DbContextOptionsBuilder options, string connectionString) => options.UseSqlServer(connectionString);
 }

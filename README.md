@@ -407,6 +407,13 @@ See [docs/adding-a-provider.md](docs/adding-a-provider.md) for what a provider h
 
 ## Known limitations
 
+- **Deletes outside `SaveChanges` leave orphaned translations.** An entity's translations are
+  removed when `SaveChanges` deletes it. `ExecuteDelete`, a database cascade over rows EF never
+  loaded, and raw SQL bypass that, and leave its translation rows behind. They are never read,
+  but an entity created again under the same key would inherit them. Clean up with
+  `await db.PurgeOrphanedTranslationsAsync()` — after a bulk delete, or on a schedule. It deletes,
+  in the database, only rows whose entity is gone, and leaves rows under entity names this
+  context does not know.
 - **Composite keys** are not supported: `Translation.EntityId` holds a single value.
 - **Keys up to 64 characters.** Every numeric key and a `Guid` fit; a longer `string` key is
   refused when its translations are written (`EntityKey.MaxLength`).

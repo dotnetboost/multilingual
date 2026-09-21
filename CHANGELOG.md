@@ -79,6 +79,13 @@ Initial library, extracted from the MultilingualApi prototype.
   built — declarations and entity-name clashes — covering the internal entity types that
   `Build()`'s scan of public types cannot see.
 
+- `PurgeOrphanedTranslationsAsync()` (and a synchronous version) deletes translation rows whose
+  entity no longer exists — left behind by `ExecuteDelete`, a database cascade over unloaded rows,
+  or raw SQL, none of which pass through `SaveChanges`. One set-based `DELETE … WHERE NOT EXISTS`
+  per entity type; rows under entity names the model does not know are left alone. The
+  integration tests now also run on a case-sensitive SQL Server database, where a key compared in
+  the wrong case would have made live rows look orphaned.
+
 ### Changed (relative to the prototype)
 - A translation row whose value is `null` is removed by the store instead of stored, so a
   cleared translation leaves nothing behind. Part of the `ITranslationStore.UpsertManyAsync`

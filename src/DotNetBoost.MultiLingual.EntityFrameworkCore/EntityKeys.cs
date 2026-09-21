@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Metadata;
 using DotNetBoost.MultiLingual.Core.Services;
@@ -68,5 +69,34 @@ internal static class EntityKeys
         }
 
         return key.Properties[0];
+    }
+
+    /// <summary>
+    /// A query expression for <paramref name="entity"/>'s key as the string
+    /// <see cref="EntityKey.ToKeyString"/> stores, so it can be compared with
+    /// <c>Translation.EntityId</c> in SQL. Guids are lower-cased: providers disagree on the case of
+    /// a Guid cast to text, and the stored form is lower case.
+    /// </summary>
+    public static Expression KeyAsString(DbContext context, Expression entity)
+    {
+        var entityType = context.Model.FindEntityType(entity.Type) ?? throw new InvalidOperationException(
+            $"'{entity.Type.Name}' is not an entity type of '{context.GetType().Name}'.");
+
+        var keyProperty = EntityKeys.SingleKeyProperty(entityType);
+
+        Expression key = keyProperty.PropertyInfo is not null || keyProperty.FieldInfo is not null
+            ? Expression.PropertyOrField(entity, keyProperty.Name)
+            : Expression.Call(typeof(EF), nameof(EF.Property), [keyProperty.ClrType], entity, Expression.Constant(keyProperty.Name));
+
+        var keyType = Nullable.GetUnderlyingType(key.Type) ?? key.Type;
+
+        if (keyType == typeof(string))
+            return key;
+
+        var asString = Expression.Call(key, key.Type.GetMethod(nameof(ToString), Type.EmptyTypes)!);
+
+        return keyType == typeof(Guid)
+            ? Expression.Call(asString, typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!)
+            : asString;
     }
 }
