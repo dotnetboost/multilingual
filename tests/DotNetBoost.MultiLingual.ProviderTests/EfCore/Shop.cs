@@ -32,6 +32,7 @@ public class ShopCategory
     public ICollection<ShopProduct> Products { get; set; } = [];
 }
 
+[MultiLingualEntity("document")]
 public class ShopDocument
 {
     public Guid Id { get; set; }

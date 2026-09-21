@@ -102,18 +102,25 @@ public static class MultiLingualModelValidator
         ArgumentNullException.ThrowIfNull(types);
 
         var errors = new List<string>();
+        var named  = new List<(Type Type, string Name)>();
+
         foreach (var type in types.Where(t => t is { IsClass: true, IsAbstract: false }))
         {
             try
             {
-                if (MultiLingualMetadata.IsDecorated(type))
-                    _ = MultiLingualMetadata.For(type);
+                if (!MultiLingualMetadata.IsDecorated(type))
+                    continue;
+
+                if (MultiLingualMetadata.For(type).Count > 0)
+                    named.Add((type, MultiLingualMetadata.EntityNameFor(type)));
             }
             catch (InvalidOperationException ex)
             {
                 errors.Add(ex.Message);
             }
         }
+
+        errors.AddRange(FindNameClashes(named));
 
         if (errors.Count == 0)
             return;
@@ -123,6 +130,48 @@ public static class MultiLingualModelValidator
             sb.AppendLine().Append("  - ").Append(error);
 
         throw new InvalidOperationException(sb.ToString());
+    }
+
+    /// <summary>
+    /// Two unrelated types stored under one entity name would read and overwrite each other's
+    /// translations. Compared case-insensitively, since a case-insensitive database collation
+    /// matches the rows that way. A hierarchy sharing its base's name is one entity, not a clash.
+    /// </summary>
+    private static IEnumerable<string> FindNameClashes(List<(Type Type, string Name)> named)
+    {
+        foreach (var group in named.GroupBy(n => n.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var roots = group
+                .Select(n => NamingRoot(n.Type, n.Name))
+                .Distinct()
+                .OrderBy(t => t.FullName, StringComparer.Ordinal)
+                .ToList();
+
+            if (roots.Count < 2)
+                continue;
+
+            var types = string.Join(", ", group
+                .Select(n => $"{n.Type.FullName} (\"{n.Name}\")")
+                .Order(StringComparer.Ordinal));
+
+            yield return
+                $"These types would share translation rows under the entity name '{group.Key}': {types}. " +
+                "Give each a distinct name with [MultiLingualEntity(\"...\")].";
+        }
+    }
+
+    /// <summary>The topmost ancestor of <paramref name="type"/> still stored under <paramref name="name"/>.</summary>
+    private static Type NamingRoot(Type type, string name)
+    {
+        var root = type;
+        while (root.BaseType is { } parent
+               && parent != typeof(object)
+               && string.Equals(MultiLingualMetadata.EntityNameFor(parent), name, StringComparison.OrdinalIgnoreCase))
+        {
+            root = parent;
+        }
+
+        return root;
     }
 
     private static bool IsApplicationAssembly(Assembly assembly)

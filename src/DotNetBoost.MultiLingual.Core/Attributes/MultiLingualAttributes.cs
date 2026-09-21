@@ -38,7 +38,47 @@ namespace DotNetBoost.MultiLingual.Core.Attributes;
 /// </para>
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
-public sealed class MultiLingualAttribute : Attribute;
+public sealed class MultiLingualAttribute : Attribute
+{
+    /// <summary>
+    /// The name stored in <c>Translation.EntityName</c> for this type's rows, in place of the
+    /// class name. Class level only; for property-level declarations use
+    /// <see cref="MultiLingualEntityAttribute"/>. See that attribute for why you would set it.
+    /// </summary>
+    public string? EntityName { get; set; }
+}
+
+/// <summary>
+/// Fixes the name stored in <c>Translation.EntityName</c> for a type's translation rows.
+///
+/// <para>
+/// <b>Why it matters.</b> Without it the stored name is the class name, so the class name
+/// becomes part of the database: renaming the class leaves every existing translation filed
+/// under the old name, where nothing reads it any more. Setting a name here decouples the two —
+/// rename the class freely, and the rows still match. To rename a class that has no fixed name
+/// yet, set this to its <i>old</i> name.
+/// </para>
+///
+/// <para>
+/// Two types may not share a name, compared case-insensitively (a case-insensitive database
+/// collation would mix their rows). <c>Build()</c> fails on a clash. The exception is an
+/// inheritance hierarchy: a derived type inherits its base's name, and shares its rows, which
+/// is correct when they share a key space, as EF Core's TPH, TPT and TPC mappings all do.
+/// </para>
+///
+/// <para>
+/// Equivalent to <c>[MultiLingual(EntityName = "...")]</c> at class level. Use this form when
+/// the translatable properties are marked individually and the class has no
+/// <see cref="MultiLingualAttribute"/> of its own.
+/// </para>
+/// </summary>
+/// <param name="name">The stored name. Non-blank, at most 128 characters.</param>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+public sealed class MultiLingualEntityAttribute(string name) : Attribute
+{
+    /// <summary>The name stored in <c>Translation.EntityName</c>.</summary>
+    public string Name { get; } = name;
+}
 
 /// <summary>
 /// Escape hatch for class-level <see cref="MultiLingualAttribute"/>: a string property

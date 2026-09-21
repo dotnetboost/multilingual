@@ -52,7 +52,7 @@ public sealed class TranslationConfiguration(MultiLingualModelOptions options) :
         builder.HasKey(t => new { t.EntityName, t.EntityId, t.PropertyName, t.LanguageCode })
             .HasName("PK_" + options.TranslationsTable);
 
-        builder.Property(t => t.EntityName).HasMaxLength(128).IsRequired();
+        builder.Property(t => t.EntityName).HasMaxLength(MultiLingualMetadata.MaxEntityNameLength).IsRequired();
 
         // 64 comfortably fits an int, a long, or a Guid in "D" format (36 chars).
         builder.Property(t => t.EntityId).HasMaxLength(64).IsRequired();

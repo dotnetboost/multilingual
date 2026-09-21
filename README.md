@@ -125,6 +125,25 @@ decorated type).
 `long`, `Guid`, `string`) are stored as invariant strings. Languages are identified by their
 code, which is immutable once created.
 
+**Entity names are part of your database.** `EntityName` is the class name unless you fix it,
+so renaming a class would orphan every translation stored under the old name. Fix the name and
+the class can be renamed freely:
+
+```csharp
+[MultiLingual(EntityName = "product")]          // class-level declarations
+public class CatalogItem { ... }
+
+[MultiLingualEntity("article")]                 // property-level declarations
+public class BlogPost { [MultiLingual] public string? Title { get; set; } ... }
+```
+
+To rename a class that has no fixed name yet, either fix it to the old name
+(`EntityName = "Product"`) or move the rows:
+`UPDATE Translations SET EntityName = 'CatalogItem' WHERE EntityName = 'Product'`.
+`Build()` refuses two unrelated types that would share a name — `Sales.Item` and
+`Library.Item`, say, or `"Shared"` and `"shared"` — and lists them. A derived type inherits its
+base's name and shares its rows, which is right for EF Core's inheritance mappings.
+
 **Read path.** Values come from the requested language, then the default language, then `null`
 (or, in base-language mode, the base language's column). Only the languages that are actually
 stored as rows are fetched, in one query per entity type.

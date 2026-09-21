@@ -181,6 +181,9 @@ public sealed class EfCoreInterceptorTests
             await write.Db.SaveChangesAsync();
         }
 
+        // ShopDocument fixes its entity name, so the rows do not depend on the class name.
+        Assert.Equal(("document", id.ToString("D")), (await shop.StoredTranslationsAsync()).Select(t => (t.EntityName, t.EntityId)).Single());
+
         await using var read = await shop.ScopeInAsync("ar");
         var document = await read.Db.Documents.AsNoTracking().FirstLocalizedOrDefaultAsync(read.Hydrator);
 

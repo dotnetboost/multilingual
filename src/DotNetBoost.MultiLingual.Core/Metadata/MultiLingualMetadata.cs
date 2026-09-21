@@ -57,6 +57,10 @@ public sealed class TranslatableProperty
 public static class MultiLingualMetadata
 {
     private static readonly ConcurrentDictionary<Type, IReadOnlyList<TranslatableProperty>> Cache = new();
+    private static readonly ConcurrentDictionary<Type, string> EntityNames = new();
+
+    /// <summary>The longest name <c>Translation.EntityName</c> can hold.</summary>
+    public const int MaxEntityNameLength = 128;
 
     private static readonly IReadOnlyList<TranslatableProperty> None = [];
 
@@ -87,14 +91,44 @@ public static class MultiLingualMetadata
     }
 
     /// <summary>
-    /// The canonical value stored in <c>Translation.EntityName</c>. Uses the CLR type name
-    /// (not the full name) so the column stays short and readable; if two translatable
-    /// entities share a short name in different namespaces, their translations collide.
+    /// The value stored in <c>Translation.EntityName</c>: the name fixed by
+    /// <see cref="MultiLingualEntityAttribute"/> or <c>[MultiLingual(EntityName = ...)]</c>,
+    /// otherwise the CLR type name (not the full name, so moving a type between namespaces
+    /// changes nothing). Types sharing a name are rejected by <c>Build()</c>.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The fixed name is blank or too long, or both attributes fix one.
+    /// </exception>
     public static string EntityNameFor(Type clrType)
     {
         ArgumentNullException.ThrowIfNull(clrType);
-        return clrType.Name;
+        return EntityNames.GetOrAdd(clrType, static type => ResolveEntityName(type));
+    }
+
+    private static string ResolveEntityName(Type type)
+    {
+        var fromEntity = type.GetCustomAttribute<MultiLingualEntityAttribute>(inherit: true)?.Name;
+        var fromClass  = type.GetCustomAttribute<MultiLingualAttribute>(inherit: true)?.EntityName;
+
+        if (fromEntity is not null && fromClass is not null)
+        {
+            throw new InvalidOperationException(
+                $"'{type.Name}' names its translation rows twice, with [MultiLingualEntity(\"{fromEntity}\")] " +
+                $"and [MultiLingual(EntityName = \"{fromClass}\")]. Keep one.");
+        }
+
+        var name = fromEntity ?? fromClass;
+        if (name is null)
+            return type.Name;
+
+        if (string.IsNullOrWhiteSpace(name) || name.Length > MaxEntityNameLength || name.Trim().Length != name.Length)
+        {
+            throw new InvalidOperationException(
+                $"'{type.Name}' has an invalid entity name '{name}': it must be non-blank, have no leading " +
+                $"or trailing spaces, and be at most {MaxEntityNameLength} characters.");
+        }
+
+        return name;
     }
 
     private static IReadOnlyList<TranslatableProperty> Build(Type type)
@@ -117,6 +151,15 @@ public static class MultiLingualMetadata
             throw new InvalidOperationException(
                 $"[MultiLingual] on '{type.Name}.{property.Name}' is invalid: only string properties " +
                 $"can be translated, but this property is '{property.PropertyType.Name}'.");
+        }
+
+        // The stored name belongs to the type, not to one property; accepting it here would
+        // raise the question of which property's name wins.
+        foreach (var property in propertyLevel.Where(p => p.GetCustomAttribute<MultiLingualAttribute>(inherit: true)!.EntityName is not null))
+        {
+            throw new InvalidOperationException(
+                $"[MultiLingual(EntityName = ...)] on '{type.Name}.{property.Name}' is invalid: the entity " +
+                "name is set once per class. Put [MultiLingualEntity(\"...\")] on the class instead.");
         }
 
         if (!classLevel && propertyLevel.Length == 0)

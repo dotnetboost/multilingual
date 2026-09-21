@@ -37,6 +37,11 @@ Initial library, extracted from the MultilingualApi prototype.
   `Vary: Accept-Language`), `MapLanguageEndpoints()`, `MultiLingualExceptionHandler`, and the
   `AddAcceptLanguageParameter()` OpenAPI transformer (net10.0).
 - Multi-targets `net8.0` and `net10.0`.
+- `[MultiLingual(EntityName = "...")]` and `[MultiLingualEntity("...")]` fix the name stored in
+  `Translation.EntityName`, so a class can be renamed without orphaning its translations.
+  Without either, the class name is used, as before. `Build()` now fails when two unrelated
+  types would share a name (compared case-insensitively), instead of letting them read and
+  overwrite each other's rows; a derived type inheriting its base's name is allowed.
 
 ### Changed (relative to the prototype)
 - Translations reference languages by **code** rather than a numeric id, and use the natural
