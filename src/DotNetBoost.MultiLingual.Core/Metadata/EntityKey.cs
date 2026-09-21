@@ -10,6 +10,12 @@ namespace DotNetBoost.MultiLingual.Core.Metadata;
 /// </summary>
 public static class EntityKey
 {
+    /// <summary>
+    /// The longest key <c>Translation.EntityId</c> can hold. Every numeric key and a Guid (36)
+    /// fit; a string key longer than this cannot have translations, and writing one is refused.
+    /// </summary>
+    public const int MaxLength = 64;
+
     /// <summary>Formats a key value invariantly.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="keyValue"/> is null.</exception>
     public static string ToKeyString(object keyValue) => keyValue switch

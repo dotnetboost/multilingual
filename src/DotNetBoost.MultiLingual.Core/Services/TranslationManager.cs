@@ -357,6 +357,15 @@ internal sealed partial class TranslationManager(
         var rows = new List<Translation>();
         foreach (var write in writes)
         {
+            // Refused here rather than left to the database: SQLite does not enforce the column
+            // length at all, and elsewhere the error would name a column, not the entity.
+            if (write.EntityId.Length > EntityKey.MaxLength)
+            {
+                throw new InvalidOperationException(
+                    $"'{write.EntityName}' key '{write.EntityId[..16]}…' is {write.EntityId.Length} characters long; " +
+                    $"translation keys hold at most {EntityKey.MaxLength}. Use a shorter key for translatable entities.");
+            }
+
             foreach (var (languageCode, values) in write.ValuesByLanguage)
             {
                 // Loud, not silent: a value for a language nobody can read would be lost content.

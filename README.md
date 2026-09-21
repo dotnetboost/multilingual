@@ -359,6 +359,8 @@ See [docs/adding-a-provider.md](docs/adding-a-provider.md) for what a provider h
 ## Known limitations
 
 - **Composite keys** are not supported: `Translation.EntityId` holds a single value.
+- **Keys up to 64 characters.** Every numeric key and a `Guid` fit; a longer `string` key is
+  refused when its translations are written (`EntityKey.MaxLength`).
 - **`AddDbContextPool`** is not supported: pooled options are built once, from the root provider,
   and cannot carry per-request services.
 - **Retrying execution strategies** (`EnableRetryOnFailure`) work with a plain `SaveChanges`:
