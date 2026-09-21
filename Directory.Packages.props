@@ -7,6 +7,8 @@
   <!-- Versions deliberately track DotNetBoost.Settings, so an application using both packages
        never has to reconcile two different Microsoft.Extensions.* floors. -->
   <ItemGroup Label="Microsoft">
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />

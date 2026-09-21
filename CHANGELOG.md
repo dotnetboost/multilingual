@@ -50,6 +50,13 @@ Initial library, extracted from the MultilingualApi prototype.
 - `ITranslationManager.CompleteWrites`, split out of `WriteAsync`, so a provider that commits
   after writing can record the values as stored only once the commit succeeds.
 
+- `SynchronizeLanguagesThroughDistributedCache()` lets every instance of an application see a
+  language change within seconds (5 by default) instead of when its cache expires, through any
+  `IDistributedCache` the instances share. Each instance reads one small entry per interval and
+  reloads the list only when it changed; an unreachable cache is logged and tolerated.
+  `ILanguageChangeSignal` and `UseLanguageChangeSignal<T>()` plug in other backends. Adds a
+  `Microsoft.Extensions.Caching.Abstractions` reference to `DotNetBoost.MultiLingual.Core`.
+
 ### Changed (relative to the prototype)
 - Translations reference languages by **code** rather than a numeric id, and use the natural
   composite key instead of a surrogate `Id`. Language endpoints are addressed by code.

@@ -16,6 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- IDistributedCache only, for the opt-in cross-instance language change signal. -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <!-- IHostedService only, for the startup check that the base language actually exists. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />

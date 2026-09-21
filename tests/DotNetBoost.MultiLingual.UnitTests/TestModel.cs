@@ -53,14 +53,18 @@ internal sealed class Engine : IAsyncDisposable
 {
     private readonly ServiceProvider _root;
 
-    public InMemoryTranslationStore Translations { get; } = new();
-    public InMemoryLanguageStore Languages { get; } = new();
+    public InMemoryTranslationStore Translations { get; }
+    public InMemoryLanguageStore Languages { get; }
     public ManualTimeProvider Clock { get; } = new();
 
-    private Engine(Action<MultiLingualBuilder>? configure)
+    private Engine(Action<MultiLingualBuilder>? configure, Engine? sharingStoresWith, Action<IServiceCollection>? configureServices)
     {
+        Translations = sharingStoresWith?.Translations ?? new();
+        Languages    = sharingStoresWith?.Languages ?? new();
+
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<TimeProvider>(Clock);
+        configureServices?.Invoke(services);
 
         var builder = services.AddMultiLingual().UseCustomStores(_ => Translations, _ => Languages);
         configure?.Invoke(builder);
@@ -72,7 +76,7 @@ internal sealed class Engine : IAsyncDisposable
     /// <summary>An engine with en (default), ar and fr.</summary>
     public static async Task<Engine> StartAsync(Action<MultiLingualBuilder>? configure = null, bool seedLanguages = true)
     {
-        var engine = new Engine(configure);
+        var engine = new Engine(configure, sharingStoresWith: null, configureServices: null);
         if (seedLanguages)
         {
             await using var scope = engine.Scope();
@@ -82,6 +86,26 @@ internal sealed class Engine : IAsyncDisposable
             await manager.CreateAsync(new NewLanguage { Code = "fr", Name = "French" });
         }
 
+        return engine;
+    }
+
+    /// <summary>
+    /// Another application instance over the same stores — a second server behind the load
+    /// balancer. Its own container, catalog and clock; <paramref name="configureServices"/> can
+    /// give it whatever else the instances share, such as a distributed cache.
+    /// </summary>
+    public Engine StartSibling(Action<MultiLingualBuilder>? configure = null, Action<IServiceCollection>? configureServices = null) =>
+        new(configure, sharingStoresWith: this, configureServices);
+
+    /// <summary>An engine with en (default), ar and fr, and extra registrations.</summary>
+    public static async Task<Engine> StartAsync(Action<MultiLingualBuilder>? configure, Action<IServiceCollection> configureServices)
+    {
+        var engine = new Engine(configure, sharingStoresWith: null, configureServices);
+        await using var scope = engine.Scope();
+        var manager = scope.Get<ILanguageManager>();
+        await manager.CreateAsync(new NewLanguage { Code = "en", Name = "English" });
+        await manager.CreateAsync(new NewLanguage { Code = "ar", Name = "Arabic" });
+        await manager.CreateAsync(new NewLanguage { Code = "fr", Name = "French" });
         return engine;
     }
 

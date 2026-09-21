@@ -1,6 +1,7 @@
 using DotNetBoost.MultiLingual.Core;
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Services;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Microsoft.Extensions.DependencyInjection
@@ -60,6 +61,80 @@ namespace Microsoft.Extensions.DependencyInjection
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
             builder.Options.LanguageCacheDuration = duration;
             return builder;
+        }
+
+        /// <summary>
+        /// Lets every instance of the application see a language change within
+        /// <paramref name="checkInterval"/> (default: 5 seconds) rather than when its cache expires,
+        /// through an <see cref="IDistributedCache"/> they all share — register one as usual, for
+        /// example with <c>AddStackExchangeRedisCache(...)</c>:
+        /// <code>
+        /// services.AddStackExchangeRedisCache(o =&gt; o.Configuration = redis);
+        /// services.AddMultiLingual()
+        ///         .UseEntityFrameworkCore&lt;AppDbContext&gt;()
+        ///         .SynchronizeLanguagesThroughDistributedCache()
+        ///         .Build();
+        /// </code>
+        /// Each instance reads one small cache entry per interval; the list itself is only reloaded
+        /// when it changed.
+        /// </summary>
+        /// <param name="builder">The builder.</param>
+        /// <param name="checkInterval">How often each instance checks for a change.</param>
+        /// <param name="key">The cache entry to use; distinct per application if several share a cache.</param>
+        public static MultiLingualBuilder SynchronizeLanguagesThroughDistributedCache(
+            this MultiLingualBuilder builder,
+            TimeSpan? checkInterval = null,
+            string key = DistributedCacheLanguageChangeSignal.DefaultKey)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+            ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+            return builder.UseLanguageChangeSignal(
+                sp => new DistributedCacheLanguageChangeSignal(
+                    sp.GetService<IDistributedCache>() ?? throw new InvalidOperationException(
+                        "SynchronizeLanguagesThroughDistributedCache() needs an IDistributedCache that every " +
+                        "instance shares. Register one, e.g. services.AddStackExchangeRedisCache(...)."),
+                    key),
+                checkInterval);
+        }
+
+        /// <summary>
+        /// Uses <typeparamref name="TSignal"/> to tell every instance about a language change,
+        /// checked every <paramref name="checkInterval"/> (default: 5 seconds). Registered as a
+        /// singleton. See <see cref="ILanguageChangeSignal"/>.
+        /// </summary>
+        public static MultiLingualBuilder UseLanguageChangeSignal<TSignal>(this MultiLingualBuilder builder, TimeSpan? checkInterval = null)
+            where TSignal : class, ILanguageChangeSignal
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+            SetCheckInterval(builder, checkInterval);
+            builder.Services.Replace(ServiceDescriptor.Singleton<ILanguageChangeSignal, TSignal>());
+            return builder;
+        }
+
+        /// <summary>
+        /// Uses the signal <paramref name="factory"/> creates to tell every instance about a
+        /// language change. See <see cref="UseLanguageChangeSignal{TSignal}"/>.
+        /// </summary>
+        public static MultiLingualBuilder UseLanguageChangeSignal(
+            this MultiLingualBuilder builder,
+            Func<IServiceProvider, ILanguageChangeSignal> factory,
+            TimeSpan? checkInterval = null)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+            ArgumentNullException.ThrowIfNull(factory);
+            SetCheckInterval(builder, checkInterval);
+            builder.Services.Replace(ServiceDescriptor.Singleton(factory));
+            return builder;
+        }
+
+        private static void SetCheckInterval(MultiLingualBuilder builder, TimeSpan? checkInterval)
+        {
+            if (checkInterval is not { } interval)
+                return;
+
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(interval, TimeSpan.Zero, nameof(checkInterval));
+            builder.Options.LanguageChangeCheckInterval = interval;
         }
 
         /// <summary>

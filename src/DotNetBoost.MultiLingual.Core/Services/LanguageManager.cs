@@ -1,14 +1,24 @@
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DotNetBoost.MultiLingual.Core.Services;
 
 /// <summary>Default <see cref="ILanguageManager"/>: the language rules, over any store.</summary>
-public sealed class LanguageManager(
+/// <param name="languages">The language store.</param>
+/// <param name="translations">The translation store, to count and purge a language's rows.</param>
+/// <param name="catalog">Invalidated after every write.</param>
+/// <param name="options">The base language, among others.</param>
+/// <param name="signal">Optional; told about every write, so other instances reload too.</param>
+/// <param name="logger">Optional; reports a signal that could not be sent.</param>
+public sealed partial class LanguageManager(
     ILanguageStore languages,
     ITranslationStore translations,
     ILanguageCatalog catalog,
-    MultiLingualOptions options) : ILanguageManager
+    MultiLingualOptions options,
+    ILanguageChangeSignal? signal = null,
+    ILogger<LanguageManager>? logger = null) : ILanguageManager
 {
     /// <summary>Longest display name accepted.</summary>
     public const int MaxNameLength = 128;
@@ -51,7 +61,7 @@ public sealed class LanguageManager(
             throw new LanguageConflictException("The default language must be active.");
 
         await languages.AddAsync(created, ct);
-        catalog.Invalidate();
+        await ChangedAsync(ct);
 
         return LanguageInfo.From(created);
     }
@@ -84,7 +94,7 @@ public sealed class LanguageManager(
         language.IsActive  = update.IsActive;
 
         await languages.UpdateAsync(language, ct);
-        catalog.Invalidate();
+        await ChangedAsync(ct);
 
         return LanguageInfo.From(language);
     }
@@ -121,7 +131,7 @@ public sealed class LanguageManager(
         }
 
         await languages.DeleteAsync(language.Code, ct);
-        catalog.Invalidate();
+        await ChangedAsync(ct);
     }
 
     /// <inheritdoc/>
@@ -139,7 +149,7 @@ public sealed class LanguageManager(
         }
 
         await languages.SetDefaultAsync(language.Code, ct);
-        catalog.Invalidate();
+        await ChangedAsync(ct);
 
         language.IsDefault = true;
         return LanguageInfo.From(language);
@@ -176,4 +186,32 @@ public sealed class LanguageManager(
 
         return trimmed;
     }
+
+    /// <summary>
+    /// Drops this instance's cached list, and tells the others. The write itself has already
+    /// succeeded, so a signal that cannot be sent is logged rather than thrown: failing the call
+    /// would suggest the change did not happen. Other instances then catch up when their cache
+    /// expires.
+    /// </summary>
+    private async Task ChangedAsync(CancellationToken ct)
+    {
+        catalog.Invalidate();
+
+        if (signal is null)
+            return;
+
+        try
+        {
+            await signal.SignalChangeAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogSignalFailed((ILogger?)logger ?? NullLogger.Instance, ex);
+        }
+    }
+
+    [LoggerMessage(EventId = 5001, Level = LogLevel.Warning,
+        Message = "The language list changed, but the change signal could not be sent. Other instances " +
+                  "will serve their cached list until it expires.")]
+    private static partial void LogSignalFailed(ILogger logger, Exception exception);
 }

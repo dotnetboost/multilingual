@@ -11,10 +11,19 @@ public sealed class MultiLingualOptions
     /// <summary>
     /// How long the language list is cached before it is re-read from the store. Default:
     /// 5 minutes. Writes through <c>ILanguageManager</c> invalidate the local cache
-    /// immediately; this bounds how long OTHER instances of the application serve a stale list.
-    /// Set via <c>WithLanguageCacheDuration()</c>.
+    /// immediately; this bounds how long OTHER instances of the application serve a stale list —
+    /// unless an <c>ILanguageChangeSignal</c> tells them sooner (see
+    /// <see cref="LanguageChangeCheckInterval"/>). Set via <c>WithLanguageCacheDuration()</c>.
     /// </summary>
     public TimeSpan LanguageCacheDuration { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How often, at most, the cached language list asks the <c>ILanguageChangeSignal</c> whether
+    /// another instance changed it. Default: 5 seconds. Only used when a signal is registered —
+    /// <c>SynchronizeLanguagesThroughDistributedCache()</c> or <c>UseLanguageChangeSignal&lt;T&gt;()</c>,
+    /// which both set it.
+    /// </summary>
+    public TimeSpan LanguageChangeCheckInterval { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Whether a value missing in the requested language is read from the default language.

@@ -289,6 +289,25 @@ POST   /api/languages/{code}/set-default
 DELETE /api/languages/{code}/translations  purge
 ```
 
+**Several instances.** Each instance caches the language list (5 minutes by default,
+`WithLanguageCacheDuration()`). A change through `ILanguageManager` refreshes the instance that
+made it at once, but the others only see it when their cache expires. To have every instance
+pick it up within seconds, share a change signal through a distributed cache you already run:
+
+```csharp
+builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redisConnectionString);
+
+builder.Services.AddMultiLingual()
+    .UseEntityFrameworkCore<AppDbContext>()
+    .SynchronizeLanguagesThroughDistributedCache()      // checks every 5 seconds; pass another interval if you like
+    .Build();
+```
+
+Each instance then reads one small cache entry per interval, and reloads the list only when it
+changed. If the cache is unreachable, instances keep serving their cached list and log a warning,
+and the cache expiry still applies. For another backend, implement `ILanguageChangeSignal` and
+register it with `UseLanguageChangeSignal<T>()`.
+
 Outside a request (jobs, seeders), set the language yourself — or stage values per language:
 
 ```csharp
