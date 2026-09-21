@@ -46,6 +46,12 @@ public interface ILanguageCatalog
     /// <summary>Every language, ordered by code.</summary>
     Task<IReadOnlyList<LanguageInfo>> GetAllAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Synchronous <see cref="GetAllAsync"/>, for a synchronous <c>SaveChanges</c>. The default
+    /// blocks on the async method; the built-in catalog loads synchronously instead.
+    /// </summary>
+    IReadOnlyList<LanguageInfo> GetAll() => GetAllAsync().GetAwaiter().GetResult();
+
     /// <summary>The default language.</summary>
     /// <exception cref="NoLanguageConfiguredException">No default language exists.</exception>
     Task<LanguageInfo> GetDefaultAsync(CancellationToken ct = default);
@@ -150,6 +156,13 @@ public interface ITranslationManager
     Task WriteAsync(IReadOnlyCollection<TranslationWrite> writes, CancellationToken ct = default);
 
     /// <summary>
+    /// Synchronous <see cref="WriteAsync"/>, for a synchronous <c>SaveChanges</c>. Blocks on
+    /// nothing asynchronous as long as the stores and catalog implement their synchronous members.
+    /// </summary>
+    /// <exception cref="LanguageNotFoundException">A write names a language that does not exist.</exception>
+    void Write(IReadOnlyCollection<TranslationWrite> writes);
+
+    /// <summary>
     /// Records that <paramref name="writes"/> are now durably stored: for each one with a
     /// <see cref="TranslationWrite.Source"/>, discards what was <see cref="Stage"/>d for that
     /// instance and remembers what was written, so saving the same untouched instance again
@@ -159,6 +172,9 @@ public interface ITranslationManager
 
     /// <summary>Removes every translation belonging to the given entities.</summary>
     Task<int> DeleteEntitiesAsync(string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default);
+
+    /// <summary>Synchronous <see cref="DeleteEntitiesAsync"/>, for a synchronous <c>SaveChanges</c>.</summary>
+    int DeleteEntities(string entityName, IReadOnlyCollection<string> entityIds);
 
     /// <summary>
     /// A manager that shares this one's scope state (staged values, hydration tracking, current

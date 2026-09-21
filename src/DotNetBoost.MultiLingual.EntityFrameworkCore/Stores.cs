@@ -56,46 +56,66 @@ public sealed class EfCoreTranslationStore(DbContext context) : ITranslationStor
 
         // One round trip per entity type to load whatever already exists, then upsert in memory.
         foreach (var group in translations.GroupBy(t => t.EntityName, StringComparer.Ordinal))
-        {
-            var entityName = group.Key;
-            var ids        = group.Select(t => t.EntityId).Distinct(StringComparer.Ordinal).ToArray();
-            var codes      = group.Select(t => t.LanguageCode).Distinct(StringComparer.Ordinal).ToArray();
-
-            var existing = await Translations
-                .Where(t => t.EntityName == entityName && ids.Contains(t.EntityId) && codes.Contains(t.LanguageCode))
-                .ToListAsync(ct);
-
-            var index = existing.ToDictionary(t => (t.EntityId, t.PropertyName, t.LanguageCode));
-
-            foreach (var row in group)
-            {
-                var key = (row.EntityId, row.PropertyName, row.LanguageCode);
-
-                if (index.TryGetValue(key, out var current))
-                {
-                    // Assign only on change, so an unchanged value never costs an UPDATE.
-                    if (!string.Equals(current.Value, row.Value, StringComparison.Ordinal))
-                        current.Value = row.Value;
-                }
-                else
-                {
-                    // A copy: the caller's instance must not become tracked by this context.
-                    var created = new Translation
-                    {
-                        EntityName   = row.EntityName,
-                        EntityId     = row.EntityId,
-                        PropertyName = row.PropertyName,
-                        LanguageCode = row.LanguageCode,
-                        Value        = row.Value
-                    };
-
-                    Translations.Add(created);
-                    index[key] = created;
-                }
-            }
-        }
+            Merge(group, await ExistingRows(group).ToListAsync(ct));
 
         await context.SaveChangesAsync(ct);
+    }
+
+    /// <inheritdoc/>
+    public void UpsertMany(IReadOnlyCollection<Translation> translations)
+    {
+        ArgumentNullException.ThrowIfNull(translations);
+        if (translations.Count == 0)
+            return;
+
+        foreach (var group in translations.GroupBy(t => t.EntityName, StringComparer.Ordinal))
+            Merge(group, ExistingRows(group).ToList());
+
+        context.SaveChanges();
+    }
+
+    /// <summary>The stored rows an upsert of <paramref name="group"/> (one entity type) may touch — tracked.</summary>
+    private IQueryable<Translation> ExistingRows(IGrouping<string, Translation> group)
+    {
+        var entityName = group.Key;
+        var ids        = group.Select(t => t.EntityId).Distinct(StringComparer.Ordinal).ToArray();
+        var codes      = group.Select(t => t.LanguageCode).Distinct(StringComparer.Ordinal).ToArray();
+
+        return Translations
+            .Where(t => t.EntityName == entityName && ids.Contains(t.EntityId) && codes.Contains(t.LanguageCode));
+    }
+
+    /// <summary>Applies <paramref name="group"/> over the rows already stored, leaving the changes tracked.</summary>
+    private void Merge(IEnumerable<Translation> group, List<Translation> existing)
+    {
+        var index = existing.ToDictionary(t => (t.EntityId, t.PropertyName, t.LanguageCode));
+
+        foreach (var row in group)
+        {
+            var key = (row.EntityId, row.PropertyName, row.LanguageCode);
+
+            if (index.TryGetValue(key, out var current))
+            {
+                // Assign only on change, so an unchanged value never costs an UPDATE.
+                if (!string.Equals(current.Value, row.Value, StringComparison.Ordinal))
+                    current.Value = row.Value;
+            }
+            else
+            {
+                // A copy: the caller's instance must not become tracked by this context.
+                var created = new Translation
+                {
+                    EntityName   = row.EntityName,
+                    EntityId     = row.EntityId,
+                    PropertyName = row.PropertyName,
+                    LanguageCode = row.LanguageCode,
+                    Value        = row.Value
+                };
+
+                Translations.Add(created);
+                index[key] = created;
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -110,6 +130,23 @@ public sealed class EfCoreTranslationStore(DbContext context) : ITranslationStor
         var removed = await Translations
             .Where(t => t.EntityName == entityName && ids.Contains(t.EntityId))
             .ExecuteDeleteAsync(ct);
+
+        var idSet = ids.ToHashSet(StringComparer.Ordinal);
+        DetachTracked(t => t.EntityName == entityName && idSet.Contains(t.EntityId));
+        return removed;
+    }
+
+    /// <inheritdoc/>
+    public int DeleteEntities(string entityName, IReadOnlyCollection<string> entityIds)
+    {
+        ArgumentNullException.ThrowIfNull(entityIds);
+        if (entityIds.Count == 0)
+            return 0;
+
+        var ids = entityIds.ToArray();
+        var removed = Translations
+            .Where(t => t.EntityName == entityName && ids.Contains(t.EntityId))
+            .ExecuteDelete();
 
         var idSet = ids.ToHashSet(StringComparer.Ordinal);
         DetachTracked(t => t.EntityName == entityName && idSet.Contains(t.EntityId));
@@ -152,6 +189,9 @@ public sealed class EfCoreLanguageStore(DbContext context) : ILanguageStore
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Language>> GetAllAsync(CancellationToken ct = default) =>
         await Languages.AsNoTracking().ToListAsync(ct);
+
+    /// <inheritdoc/>
+    public IReadOnlyList<Language> GetAll() => Languages.AsNoTracking().ToList();
 
     /// <inheritdoc/>
     public Task<Language?> FindAsync(string code, CancellationToken ct = default) =>

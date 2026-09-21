@@ -37,18 +37,48 @@ public sealed class LanguageCatalog(
             using var scope = scopeFactory.CreateScope();
             var store = scope.ServiceProvider.GetRequiredService<ILanguageStore>();
 
-            var languages = (await store.GetAllAsync(ct))
-                .Select(LanguageInfo.From)
-                .OrderBy(l => l.Code, StringComparer.Ordinal)
-                .ToArray();
-
-            _snapshot = new Snapshot(languages, timeProvider.GetUtcNow());
-            return languages;
+            return Store(await store.GetAllAsync(ct));
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<LanguageInfo> GetAll()
+    {
+        var current = _snapshot;
+        if (current is not null && !IsExpired(current))
+            return current.Languages;
+
+        _gate.Wait();
+        try
+        {
+            current = _snapshot;
+            if (current is not null && !IsExpired(current))
+                return current.Languages;
+
+            using var scope = scopeFactory.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<ILanguageStore>();
+
+            return Store(store.GetAll());
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private LanguageInfo[] Store(IReadOnlyList<Language> stored)
+    {
+        var languages = stored
+            .Select(LanguageInfo.From)
+            .OrderBy(l => l.Code, StringComparer.Ordinal)
+            .ToArray();
+
+        _snapshot = new Snapshot(languages, timeProvider.GetUtcNow());
+        return languages;
     }
 
     /// <inheritdoc/>

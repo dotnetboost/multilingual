@@ -330,7 +330,28 @@ internal sealed partial class TranslationManager(
         if (writes.Count == 0)
             return;
 
-        var languages = await catalog.GetAllAsync(ct);
+        var rows = ToRows(writes, await catalog.GetAllAsync(ct));
+        if (rows.Count > 0)
+            await store.UpsertManyAsync(rows, ct);
+
+        CompleteWrites(writes);
+    }
+
+    public void Write(IReadOnlyCollection<TranslationWrite> writes)
+    {
+        ArgumentNullException.ThrowIfNull(writes);
+        if (writes.Count == 0)
+            return;
+
+        var rows = ToRows(writes, catalog.GetAll());
+        if (rows.Count > 0)
+            store.UpsertMany(rows);
+
+        CompleteWrites(writes);
+    }
+
+    private static List<Translation> ToRows(IReadOnlyCollection<TranslationWrite> writes, IReadOnlyList<LanguageInfo> languages)
+    {
         var canonical = languages.ToDictionary(l => l.Code, l => l.Code, StringComparer.OrdinalIgnoreCase);
 
         var rows = new List<Translation>();
@@ -356,10 +377,7 @@ internal sealed partial class TranslationManager(
             }
         }
 
-        if (rows.Count > 0)
-            await store.UpsertManyAsync(rows, ct);
-
-        CompleteWrites(writes);
+        return rows;
     }
 
     public void CompleteWrites(IReadOnlyCollection<TranslationWrite> writes)
@@ -430,6 +448,19 @@ internal sealed partial class TranslationManager(
             return 0;
 
         var removed = await store.DeleteEntitiesAsync(entityName, entityIds, ct);
+        LogTranslationsRemoved(removed, entityName, entityIds.Count);
+        return removed;
+    }
+
+    public int DeleteEntities(string entityName, IReadOnlyCollection<string> entityIds)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entityName);
+        ArgumentNullException.ThrowIfNull(entityIds);
+
+        if (entityIds.Count == 0)
+            return 0;
+
+        var removed = store.DeleteEntities(entityName, entityIds);
         LogTranslationsRemoved(removed, entityName, entityIds.Count);
         return removed;
     }

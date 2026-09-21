@@ -43,6 +43,32 @@ public abstract class TranslationStoreContractTests
     }
 
     [Fact]
+    public async Task SyncUpsert_InsertsAndUpdates_LikeTheAsyncOne()
+    {
+        var store = await CreateAsync();
+        store.UpsertMany([Row("1", "Name", "en", "Laptop"), Row("1", "Name", "ar", "حاسوب")]);
+        store.UpsertMany([Row("1", "Name", "en", "Notebook")]);
+
+        var rows = await store.GetAsync("Product", ["1"], ["en", "ar"]);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Contains(rows, r => r is { LanguageCode: "en", Value: "Notebook" });
+    }
+
+    [Fact]
+    public async Task SyncDeleteEntities_RemovesOnlyThoseEntities()
+    {
+        var store = await CreateAsync();
+        await store.UpsertManyAsync([Row("1", "Name", "en", "a"), Row("1", "Name", "ar", "b"), Row("2", "Name", "en", "c")]);
+
+        Assert.Equal(2, store.DeleteEntities("Product", ["1"]));
+        Assert.Equal(0, store.DeleteEntities("Product", []));
+
+        var remaining = await store.GetAsync("Product", ["1", "2"], ["en", "ar"]);
+        Assert.Equal("2", Assert.Single(remaining).EntityId);
+    }
+
+    [Fact]
     public async Task Upsert_ExistingKey_UpdatesValue()
     {
         var store = await CreateAsync();
@@ -196,6 +222,18 @@ public abstract class LanguageStoreContractTests
 
         Assert.NotNull(found);
         Assert.Equal(("العربية", TextDirection.Rtl, true, true), (found!.Name, found.Direction, found.IsDefault, found.IsActive));
+    }
+
+    [Fact]
+    public async Task SyncGetAll_ReturnsWhatTheAsyncOneDoes()
+    {
+        var store = await CreateStoreAsync();
+        await store.AddAsync(Lang("en", isDefault: true));
+        await store.AddAsync(Lang("ar"));
+
+        Assert.Equal(
+            (await store.GetAllAsync()).Select(l => (l.Code, l.IsDefault)).Order(),
+            store.GetAll().Select(l => (l.Code, l.IsDefault)).Order());
     }
 
     [Fact]

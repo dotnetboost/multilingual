@@ -48,18 +48,25 @@ public sealed class InMemoryTranslationStore : ITranslationStore
 
     public Task UpsertManyAsync(IReadOnlyCollection<Translation> translations, CancellationToken ct = default)
     {
+        UpsertMany(translations);
+        return Task.CompletedTask;
+    }
+
+    public void UpsertMany(IReadOnlyCollection<Translation> translations)
+    {
         lock (_gate)
         {
             UpsertCalls++;
             foreach (var row in translations)
                 _rows[(row.EntityName, row.EntityId, row.PropertyName, row.LanguageCode)] = Copy(row);
         }
-
-        return Task.CompletedTask;
     }
 
     public Task<int> DeleteEntitiesAsync(string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default) =>
-        Task.FromResult(RemoveWhere(k => k.EntityName == entityName && entityIds.Contains(k.EntityId)));
+        Task.FromResult(DeleteEntities(entityName, entityIds));
+
+    public int DeleteEntities(string entityName, IReadOnlyCollection<string> entityIds) =>
+        RemoveWhere(k => k.EntityName == entityName && entityIds.Contains(k.EntityId));
 
     public Task<int> CountByLanguageAsync(string languageCode, CancellationToken ct = default)
     {
@@ -99,13 +106,14 @@ public sealed class InMemoryLanguageStore : ILanguageStore
     /// <summary>How many times the list was read — lets tests observe caching.</summary>
     public int GetAllCalls { get; private set; }
 
-    public Task<IReadOnlyList<Language>> GetAllAsync(CancellationToken ct = default)
+    public Task<IReadOnlyList<Language>> GetAllAsync(CancellationToken ct = default) => Task.FromResult(GetAll());
+
+    public IReadOnlyList<Language> GetAll()
     {
         lock (_gate)
         {
             GetAllCalls++;
-            IReadOnlyList<Language> all = _languages.Values.Select(Copy).ToList();
-            return Task.FromResult(all);
+            return _languages.Values.Select(Copy).ToList();
         }
     }
 

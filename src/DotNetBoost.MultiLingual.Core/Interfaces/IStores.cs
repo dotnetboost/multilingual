@@ -10,6 +10,12 @@ namespace DotNetBoost.MultiLingual.Core.Interfaces;
 /// Language codes passed in are canonical (as stored on <see cref="Language.Code"/>), so
 /// implementations may compare them ordinally.
 /// </para>
+/// <para>
+/// <b>Synchronous members.</b> <see cref="UpsertMany"/> and <see cref="DeleteEntities"/> serve a
+/// synchronous <c>SaveChanges</c>. Their default implementations block on the async ones, which
+/// can deadlock under a single-threaded synchronization context (WPF, WinForms); a store whose
+/// backend has a synchronous API should override them, as the built-in stores do.
+/// </para>
 /// </summary>
 public interface ITranslationStore
 {
@@ -37,6 +43,14 @@ public interface ITranslationStore
     /// <summary>Removes every row belonging to the given entities. Returns the number removed.</summary>
     Task<int> DeleteEntitiesAsync(string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default);
 
+    /// <summary>Synchronous <see cref="UpsertManyAsync"/>. See the type's remarks before relying on the default.</summary>
+    void UpsertMany(IReadOnlyCollection<Translation> translations) =>
+        UpsertManyAsync(translations).GetAwaiter().GetResult();
+
+    /// <summary>Synchronous <see cref="DeleteEntitiesAsync"/>. See the type's remarks before relying on the default.</summary>
+    int DeleteEntities(string entityName, IReadOnlyCollection<string> entityIds) =>
+        DeleteEntitiesAsync(entityName, entityIds).GetAwaiter().GetResult();
+
     /// <summary>Number of rows written in <paramref name="languageCode"/>, across every entity.</summary>
     Task<int> CountByLanguageAsync(string languageCode, CancellationToken ct = default);
 
@@ -53,6 +67,14 @@ public interface ILanguageStore
 {
     /// <summary>Every stored language.</summary>
     Task<IReadOnlyList<Language>> GetAllAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Synchronous <see cref="GetAllAsync"/>, for a synchronous <c>SaveChanges</c> that finds the
+    /// language cache expired. The default blocks on the async method, which can deadlock under a
+    /// single-threaded synchronization context; override it where the backend allows, as the
+    /// built-in stores do.
+    /// </summary>
+    IReadOnlyList<Language> GetAll() => GetAllAsync().GetAwaiter().GetResult();
 
     /// <summary>The language with exactly this canonical code, or <c>null</c>.</summary>
     Task<Language?> FindAsync(string code, CancellationToken ct = default);

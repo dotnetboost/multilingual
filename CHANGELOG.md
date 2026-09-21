@@ -75,6 +75,13 @@ Initial library, extracted from the MultilingualApi prototype.
   write had already cleared the staged values and recorded the authored ones as stored, so the
   retry found nothing to write. The EF Core interceptor now completes writes only after the
   commit succeeds.
+- A synchronous `SaveChanges` blocked on the interceptor's async work, which could deadlock
+  under a single-threaded synchronization context (WPF, WinForms). It is now synchronous all
+  the way down, through new synchronous members: `ITranslationManager.Write` and
+  `DeleteEntities`, `ILanguageCatalog.GetAll`, `ITranslationStore.UpsertMany` and
+  `DeleteEntities`, and `ILanguageStore.GetAll`. The store and catalog members have default
+  implementations, so existing custom stores keep compiling; those defaults block on the async
+  members, and the built-in stores override them.
 - `MaterializedEntityRegistry` stopped recording entities past its 20,000 capacity without a
   word, so they were served with `null` translations. It now logs a warning when it fills up,
   and the next hydration throws rather than returning a partial set.

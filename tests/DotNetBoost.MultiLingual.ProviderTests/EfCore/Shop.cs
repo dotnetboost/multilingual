@@ -75,9 +75,19 @@ internal sealed class Shop : IAsyncDisposable
 
     /// <param name="configureSqlite">Provider options, such as an execution strategy.</param>
     /// <param name="interceptors">Extra interceptors for every context the shop creates.</param>
-    public static async Task<Shop> StartAsync(
+    public static Task<Shop> StartAsync(
         Action<SqliteDbContextOptionsBuilder>? configureSqlite = null,
-        params IInterceptor[] interceptors)
+        params IInterceptor[] interceptors) =>
+        StartCoreAsync(configureSqlite, configureServices: null, interceptors);
+
+    /// <summary>A shop whose registrations <paramref name="configureServices"/> may replace.</summary>
+    public static Task<Shop> StartWithServicesAsync(Action<IServiceCollection> configureServices) =>
+        StartCoreAsync(configureSqlite: null, configureServices, []);
+
+    private static async Task<Shop> StartCoreAsync(
+        Action<SqliteDbContextOptionsBuilder>? configureSqlite,
+        Action<IServiceCollection>? configureServices,
+        IInterceptor[] interceptors)
     {
         var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
         await connection.OpenAsync();
@@ -93,6 +103,8 @@ internal sealed class Shop : IAsyncDisposable
             .UseSqlite(connection, sqlite => configureSqlite?.Invoke(sqlite))
             .UseMultiLingual(sp)
             .AddInterceptors(interceptors));
+
+        configureServices?.Invoke(services);
 
         var shop = new Shop(connection, services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }));
 

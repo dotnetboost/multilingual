@@ -300,44 +300,17 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         state.IsApplying = true;
         try
         {
-            // Through THIS context, so the rows join its connection and transaction — even when
-            // it is not the context type the provider was registered with.
-            var writer = Manager.WithStore(new EfCoreTranslationStore(context));
+            var (writer, deletes, writes) = PrepareApply(context, state);
 
-            foreach (var group in state.Deletes.GroupBy(d => d.EntityName, StringComparer.Ordinal))
-            {
-                await writer.DeleteEntitiesAsync(
-                    group.Key, group.Select(d => d.EntityId).Distinct(StringComparer.Ordinal).ToArray(), cancellationToken);
-            }
-
-            var writes = new List<TranslationWrite>();
-            foreach (var pending in state.Writes)
-            {
-                var entityId = EntityKeys.TryGetKey(pending.Entry)
-                    ?? throw new InvalidOperationException(
-                        $"'{pending.EntityName}' still has no key after SaveChanges, so its translations cannot be stored.");
-
-                writes.Add(new TranslationWrite(pending.EntityName, entityId, pending.Values) { Source = pending.Entry.Entity });
-            }
+            foreach (var (entityName, entityIds) in deletes)
+                await writer.DeleteEntitiesAsync(entityName, entityIds, cancellationToken);
 
             // Written without their sources, and completed only once they are durable: completing
             // before a commit that then fails would make the retry believe they were stored.
-            await writer.WriteAsync(writes.Select(w => w with { Source = null }).ToArray(), cancellationToken);
+            await writer.WriteAsync(WithoutSources(writes), cancellationToken);
 
-            if (state.OwnedTransaction is not null)
-            {
-                await CommitOwnedTransactionAsync(state, cancellationToken);
-                Manager.CompleteWrites(writes);
-            }
-            else if (state.DeferCompletion)
-            {
-                state.Deferred.AddRange(writes);
-            }
-            else
-            {
-                // The caller's transaction: its commit is out of sight, so this is the best moment.
-                Manager.CompleteWrites(writes);
-            }
+            await CommitOwnedTransactionAsync(state, cancellationToken);
+            Complete(state, writes);
         }
         catch
         {
@@ -355,10 +328,94 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
     }
 
     /// <inheritdoc/>
-    public override int SavedChanges(SaveChangesCompletedEventData eventData, int result) =>
-        // Synchronous SaveChanges is supported so nothing breaks if it is used; the translation
-        // writes themselves are async all the way down.
-        SavedChangesAsync(eventData, result, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+    /// <remarks>
+    /// Synchronous all the way down — the same steps as <see cref="SavedChangesAsync"/> through the
+    /// synchronous members of the manager, catalog and stores — so a synchronous
+    /// <c>SaveChanges</c> never blocks on a task, and cannot deadlock under a UI thread's
+    /// synchronization context.
+    /// </remarks>
+    public override int SavedChanges(SaveChangesCompletedEventData eventData, int result)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        if (eventData.Context is not { } context || !_states.TryGetValue(context, out var state) || state.IsApplying)
+            return result;
+
+        if (!state.HasWork)
+        {
+            CommitOwnedTransaction(state);
+            return result;
+        }
+
+        state.IsApplying = true;
+        try
+        {
+            var (writer, deletes, writes) = PrepareApply(context, state);
+
+            foreach (var (entityName, entityIds) in deletes)
+                writer.DeleteEntities(entityName, entityIds);
+
+            writer.Write(WithoutSources(writes));
+
+            CommitOwnedTransaction(state);
+            Complete(state, writes);
+        }
+        catch
+        {
+            RollbackOwnedTransaction(state);
+            state.Snapshot?.Restore(context);
+            throw;
+        }
+        finally
+        {
+            state.IsApplying = false;
+            state.Reset();
+        }
+
+        return result;
+    }
+
+    /// <summary>What <c>SavedChanges</c> has to do, now that every key exists.</summary>
+    private (ITranslationManager Writer, List<(string EntityName, string[] EntityIds)> Deletes, List<TranslationWrite> Writes)
+        PrepareApply(DbContext context, SaveState state)
+    {
+        // Through THIS context, so the rows join its connection and transaction — even when it is
+        // not the context type the provider was registered with.
+        var writer = Manager.WithStore(new EfCoreTranslationStore(context));
+
+        var deletes = state.Deletes
+            .GroupBy(d => d.EntityName, StringComparer.Ordinal)
+            .Select(g => (g.Key, g.Select(d => d.EntityId).Distinct(StringComparer.Ordinal).ToArray()))
+            .ToList();
+
+        var writes = new List<TranslationWrite>();
+        foreach (var pending in state.Writes)
+        {
+            var entityId = EntityKeys.TryGetKey(pending.Entry)
+                ?? throw new InvalidOperationException(
+                    $"'{pending.EntityName}' still has no key after SaveChanges, so its translations cannot be stored.");
+
+            writes.Add(new TranslationWrite(pending.EntityName, entityId, pending.Values) { Source = pending.Entry.Entity });
+        }
+
+        return (writer, deletes, writes);
+    }
+
+    private static TranslationWrite[] WithoutSources(List<TranslationWrite> writes) =>
+        writes.Select(w => w with { Source = null }).ToArray();
+
+    /// <summary>
+    /// Records <paramref name="writes"/> as stored, once that is true. With this interceptor's own
+    /// transaction it has just committed; under a retrying strategy, the strategy completes them
+    /// after its commit; in the caller's transaction the commit is out of sight, so now is the best
+    /// moment there is.
+    /// </summary>
+    private void Complete(SaveState state, List<TranslationWrite> writes)
+    {
+        if (state.DeferCompletion)
+            state.Deferred.AddRange(writes);
+        else
+            Manager.CompleteWrites(writes);
+    }
 
     /// <inheritdoc/>
     public override async Task SaveChangesFailedAsync(
@@ -378,8 +435,16 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
     }
 
     /// <inheritdoc/>
-    public override void SaveChangesFailed(DbContextErrorEventData eventData) =>
-        SaveChangesFailedAsync(eventData, CancellationToken.None).GetAwaiter().GetResult();
+    public override void SaveChangesFailed(DbContextErrorEventData eventData)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        if (eventData.Context is not { } context || !_states.TryGetValue(context, out var state) || state.IsApplying)
+            return;
+
+        RollbackOwnedTransaction(state);
+        state.Snapshot?.Restore(context);
+        state.Reset();
+    }
 
     // ------------------------------------------------------------------ collect
 
@@ -645,6 +710,38 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         finally
         {
             await transaction.DisposeAsync();
+            state.OwnedTransaction = null;
+        }
+    }
+
+    private static void CommitOwnedTransaction(SaveState state)
+    {
+        if (state.OwnedTransaction is not { } transaction)
+            return;
+
+        try
+        {
+            transaction.Commit();
+        }
+        finally
+        {
+            transaction.Dispose();
+            state.OwnedTransaction = null;
+        }
+    }
+
+    private static void RollbackOwnedTransaction(SaveState state)
+    {
+        if (state.OwnedTransaction is not { } transaction)
+            return;
+
+        try
+        {
+            transaction.Rollback();
+        }
+        finally
+        {
+            transaction.Dispose();
             state.OwnedTransaction = null;
         }
     }

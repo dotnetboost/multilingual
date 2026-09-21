@@ -13,6 +13,7 @@ deliberately dumb: no validation, no fallback, no change detection — that all 
 | Upserts match on the natural key `(EntityName, EntityId, PropertyName, LanguageCode)`, later rows in a batch win. | There is no surrogate key. |
 | A new default language clears the others **atomically** (`AddAsync` with `IsDefault`, `SetDefaultAsync`). | Exactly one default at all times. |
 | Never keep references to the caller's `Translation` / `Language` instances. | Callers reuse them. |
+| Override the synchronous members (`UpsertMany`, `DeleteEntities`, `ILanguageStore.GetAll`) when the backend has a synchronous API. | Their defaults block on the async members, which can deadlock a synchronous save on a UI thread. |
 | Take entity names from `MultiLingualMetadata.EntityNameFor(type)`, never `type.Name`, and size the column for `MultiLingualMetadata.MaxEntityNameLength`. | Types can fix their stored name with `[MultiLingualEntity]`. |
 | Writes join whatever unit of work the application is in (Dapper: the ambient `IDbTransaction`; MongoDB: the `IClientSessionHandle`). | An entity and its translations commit or roll back together. |
 
