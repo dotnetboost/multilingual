@@ -111,6 +111,40 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SelectTranslated_ThroughANavigation_AndANestedCollection()
+    {
+        await using (var seed = _root.CreateAsyncScope())
+        {
+            var db = seed.ServiceProvider.GetRequiredService<ShopDbContext>();
+            var translations = seed.ServiceProvider.GetRequiredService<ITranslationManager>();
+
+            var books = new ShopCategory { Slug = "books" };
+            translations.Stage(books, "en", Values("Name", "Books"));
+            translations.Stage(books, "fr", Values("Name", "Livres"));
+
+            var laptop = new ShopProduct { Sku = "LAPTOP", Category = books };
+            translations.Stage(laptop, "en", Values("Name", "Laptop"));
+
+            db.Products.Add(laptop);
+            await db.SaveChangesAsync();
+        }
+
+        await using var scope = await ScopeInAsync("fr");
+        var read = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
+
+        var product = await read.Products
+            .SelectTranslated(read, p => new { p.Sku, p.Name, Category = p.Category!.Name })
+            .SingleAsync();
+        Assert.Equal(("LAPTOP", "Laptop", "Livres"), (product.Sku, product.Name, product.Category));   // Name falls back to en
+
+        var category = await read.Categories
+            .SelectTranslated(read, c => new { c.Name, Products = c.Products.Select(p => p.Name).ToList() })
+            .SingleAsync();
+        Assert.Equal("Livres", category.Name);
+        Assert.Equal(["Laptop"], category.Products);
+    }
+
+    [Fact]
     public async Task Clear_RemovesTheRow_ThroughSaveChanges()
     {
         await SeedAsync();

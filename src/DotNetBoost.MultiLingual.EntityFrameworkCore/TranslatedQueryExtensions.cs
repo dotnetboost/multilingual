@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using System.Reflection;
 using DotNetBoost.MultiLingual.Core;
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Metadata;
@@ -57,6 +58,37 @@ public static class TranslatedQueryExtensions
         return query.Where(Expression.Lambda<Func<T, bool>>(body, value.Parameters));
     }
 
+    /// <summary>
+    /// Projects the query, reading every translatable property in <paramref name="selector"/> in
+    /// the current language (or <paramref name="languageCode"/>) instead of from the entity:
+    /// <code>
+    /// var rows = await db.Products
+    ///     .SelectTranslated(db, p =&gt; new ProductDto { Sku = p.Sku, Name = p.Name, Category = p.Category!.Name })
+    ///     .ToListAsync(ct);
+    /// </code>
+    /// A plain <c>Select</c> cannot do this: in the default mode a translatable property has no
+    /// column, and in base-language mode its column only holds the base language. Properties
+    /// reached through navigations and nested collection projections are translated too.
+    /// </summary>
+    /// <param name="query">The query to project.</param>
+    /// <param name="context">The context <paramref name="query"/> runs on.</param>
+    /// <param name="selector">The projection, written as for <c>Select</c>.</param>
+    /// <param name="languageCode">The language to read; the current one when omitted.</param>
+    public static IQueryable<TResult> SelectTranslated<T, TResult>(
+        this IQueryable<T> query,
+        DbContext context,
+        Expression<Func<T, TResult>> selector,
+        string? languageCode = null)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(selector);
+
+        var visitor = new TranslatingVisitor(context, Resolve(context, languageCode));
+        return query.Select((Expression<Func<T, TResult>>)visitor.Visit(selector));
+    }
+
     /// <summary>Sorts by the translated <paramref name="property"/>, ascending.</summary>
     public static IOrderedQueryable<T> OrderByTranslation<T>(
         this IQueryable<T> query, DbContext context, Expression<Func<T, string?>> property, string? languageCode = null)
@@ -96,8 +128,8 @@ public static class TranslatedQueryExtensions
     // ------------------------------------------------------------------ the value expression
 
     /// <summary>
-    /// <c>p =&gt; COALESCE(translation(requested), translation(default), p.Column)</c>, following the
-    /// same chain as <see cref="ITranslationManager.HydrateAsync(IEnumerable{object}, CancellationToken)"/>.
+    /// <c>p =&gt; COALESCE(translation(requested), translation(default), p.Column)</c> for one
+    /// property given as a lambda.
     /// </summary>
     private static Expression<Func<T, string?>> TranslatedValue<T>(
         DbContext context, Expression<Func<T, string?>> property, string? languageCode)
@@ -106,37 +138,58 @@ public static class TranslatedQueryExtensions
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(property);
 
-        var propertyName = TranslatablePropertyName(property);
-        var services     = ApplicationServices(context);
-        var options      = services.GetRequiredService<MultiLingualOptions>();
-        var (language, fallback) = Languages(services, languageCode);
+        var member = TranslatableMember(property);
+        var body   = Translated(context, Resolve(context, languageCode), property.Parameters[0], member);
 
-        var entity = property.Parameters[0];
+        return Expression.Lambda<Func<T, string?>>(body, property.Parameters);
+    }
+
+    /// <summary>The configuration and languages every value in one query is translated with.</summary>
+    private sealed record Resolution(MultiLingualOptions Options, string Language, string Fallback);
+
+    private static Resolution Resolve(DbContext context, string? languageCode)
+    {
+        var services = ApplicationServices(context);
+        var (language, fallback) = Languages(services, languageCode);
+        return new Resolution(services.GetRequiredService<MultiLingualOptions>(), language, fallback);
+    }
+
+    /// <summary>
+    /// The translated value of <paramref name="member"/> on <paramref name="entity"/> — any entity
+    /// expression, a lambda parameter or a navigation such as <c>p.Category</c> — following the
+    /// same chain as <see cref="ITranslationManager.HydrateAsync(IEnumerable{object}, CancellationToken)"/>:
+    /// <c>COALESCE(translation(requested), translation(default), entity.Column)</c>.
+    /// </summary>
+    private static Expression Translated(DbContext context, Resolution resolution, Expression entity, MemberInfo member)
+    {
+        var options = resolution.Options;
+        var column  = Expression.MakeMemberAccess(entity, member);
 
         // The base language is the entity's own column: authoritative, and the end of the chain.
-        if (options.IsBaseLanguage(language))
-            return property;
+        if (options.IsBaseLanguage(resolution.Language))
+            return column;
 
-        var chain = new List<Expression>();
+        var codes = options.FallbackToDefaultLanguage
+                    && !string.Equals(resolution.Language, resolution.Fallback, StringComparison.OrdinalIgnoreCase)
+            ? new[] { resolution.Language, resolution.Fallback }
+            : [resolution.Language];
 
-        var codes = options.FallbackToDefaultLanguage && !string.Equals(language, fallback, StringComparison.OrdinalIgnoreCase)
-            ? new[] { language, fallback }
-            : [language];
+        var key        = KeyAsString(context, entity);
+        var entityName = MultiLingualMetadata.EntityNameFor(entity.Type);
 
-        var key        = KeyAsString(context, entity, typeof(T));
-        var entityName = MultiLingualMetadata.EntityNameFor(typeof(T));
-
-        foreach (var code in codes.Where(c => !options.IsBaseLanguage(c)))
-            chain.Add(Translation(context, entityName, propertyName, code, key));
+        var chain = codes
+            .Where(code => !options.IsBaseLanguage(code))
+            .Select(code => Translation(context, entityName, member.Name, code, key))
+            .ToList();
 
         if (options.HasBaseLanguage)
-            chain.Add(property.Body);
+            chain.Add(column);
 
         var body = chain[^1];
         for (var i = chain.Count - 2; i >= 0; i--)
             body = Expression.Coalesce(chain[i], body);
 
-        return Expression.Lambda<Func<T, string?>>(body, entity);
+        return body;
     }
 
     /// <summary>
@@ -162,10 +215,10 @@ public static class TranslatedQueryExtensions
     /// lower-cased: providers disagree on the case of a Guid cast to text, and the stored form is
     /// lower case.
     /// </summary>
-    private static Expression KeyAsString(DbContext context, ParameterExpression entity, Type clrType)
+    private static Expression KeyAsString(DbContext context, Expression entity)
     {
-        var entityType = context.Model.FindEntityType(clrType) ?? throw new InvalidOperationException(
-            $"'{clrType.Name}' is not an entity type of '{context.GetType().Name}'.");
+        var entityType = context.Model.FindEntityType(entity.Type) ?? throw new InvalidOperationException(
+            $"'{entity.Type.Name}' is not an entity type of '{context.GetType().Name}'.");
 
         var keyProperty = EntityKeys.SingleKeyProperty(entityType);
 
@@ -185,7 +238,7 @@ public static class TranslatedQueryExtensions
             : asString;
     }
 
-    private static string TranslatablePropertyName<T>(Expression<Func<T, string?>> property)
+    private static MemberInfo TranslatableMember<T>(Expression<Func<T, string?>> property)
     {
         if (property.Body is not MemberExpression { Member: { } member } access || access.Expression != property.Parameters[0])
         {
@@ -196,7 +249,30 @@ public static class TranslatedQueryExtensions
         if (!MultiLingualMetadata.For(typeof(T)).Any(p => string.Equals(p.Name, member.Name, StringComparison.Ordinal)))
             throw new ArgumentException($"'{typeof(T).Name}.{member.Name}' is not a translatable property.", nameof(property));
 
-        return member.Name;
+        return member;
+    }
+
+    /// <summary>
+    /// Replaces every read of a translatable property of an entity — on the projection's own
+    /// parameter, through a navigation, or inside a nested collection projection — with its
+    /// translated value. Anything else, including translatable-looking properties on types that
+    /// are not entities of this model, is left alone.
+    /// </summary>
+    private sealed class TranslatingVisitor(DbContext context, Resolution resolution) : ExpressionVisitor
+    {
+        protected override Expression VisitMember(MemberExpression node)
+        {
+            if (node.Expression is { } owner
+                && node.Member is PropertyInfo { PropertyType: var type }
+                && type == typeof(string)
+                && context.Model.FindEntityType(owner.Type) is not null
+                && MultiLingualMetadata.For(owner.Type).Any(p => string.Equals(p.Name, node.Member.Name, StringComparison.Ordinal)))
+            {
+                return Translated(context, resolution, Visit(owner), node.Member);
+            }
+
+            return base.VisitMember(node);
+        }
     }
 
     /// <summary>The request's services — the scoped provider the context's options were built from.</summary>

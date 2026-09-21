@@ -163,12 +163,26 @@ translations.Clear(product, "fr");                         // every translatable
 await db.SaveChangesAsync();
 ```
 
-**Filtering and sorting.** A translatable property has no column in the default mode, so
-`Where(p => p.Name.Contains(term))` cannot run in SQL. These build the same thing over the
-translations table, comparing the value a read would show (requested language, then the
-default, then the base column):
+**Projecting, filtering and sorting.** A plain LINQ query cannot see translations. In the
+default mode a translatable property has no column at all; in base-language mode its column
+only ever holds the base language. So neither of these gives the request's language:
 
 ```csharp
+db.Products.Select(p => new ProductDto { Name = p.Name })   // default mode: refused (see below)
+                                                            // base-language mode: always the base language
+db.Products.Where(p => p.Name.Contains(term))               // default mode: refused
+```
+
+These do, building the lookup over the translations table in SQL and reading the value a read
+would show — requested language, then the default, then the base column:
+
+```csharp
+// Project straight into a DTO — navigations and nested collections included.
+var rows = await db.Products
+    .SelectTranslated(db, p => new ProductDto { Sku = p.Sku, Name = p.Name, Category = p.Category!.Name })
+    .ToListAsync(ct);
+
+// Filter and sort.
 var page = await db.Products
     .WhereTranslation(db, p => p.Name, name => name!.Contains(term))
     .OrderByTranslation(db, p => p.Name)          // also …Descending, ThenBy…
@@ -176,8 +190,16 @@ var page = await db.Products
     .ToLocalizedListAsync(hydrator, ct);
 ```
 
-Each adds a correlated subquery per language, served by the translations key — fine for a page
-of results, not a substitute for a search engine on a large catalogue.
+Pass the same `db` the query runs on; the language is the current one unless you pass
+`languageCode`. Each translated value is a correlated subquery per language, served by the
+translations key — fine for a page of results, not a substitute for a search engine on a large
+catalogue. Types in an inheritance hierarchy should share one entity name
+(`[MultiLingualEntity]` on the base), since a query over the base type looks rows up by its name.
+
+In the default mode, a query that reads a translatable property directly is refused with an
+error naming the property and these helpers — rather than EF quietly projecting `null`. In
+base-language mode a plain query is valid and reads the base column, which is sometimes what you
+want, so it is not refused.
 
 **EF Core specifics.** `ApplyMultiLingual()` removes translatable properties from the model — or,
 with a base language configured, leaves them mapped. The save interceptor captures values in

@@ -67,6 +67,14 @@ Initial library, extracted from the MultilingualApi prototype.
 - The integration tests run on net8.0 as well as net10.0, against EF Core 8's SQL Server and
   PostgreSQL providers.
 
+- `SelectTranslated(db, selector)` projects EF Core queries with every translatable property in
+  the selector — including through navigations and nested collections — read in the current
+  language, by the same SQL as `WhereTranslation`. A plain `Select` could not: in the default
+  mode it silently projected `null`, and in base-language mode it always read the base column.
+- In the default mode, a query that reads a translatable property directly is refused with an
+  error that names the property and the helpers, instead of EF projecting `null` (in a `Select`)
+  or failing with a generic "could not be translated" (in a `Where` or `OrderBy`).
+
 ### Changed (relative to the prototype)
 - A translation row whose value is `null` is removed by the store instead of stored, so a
   cleared translation leaves nothing behind. Part of the `ITranslationStore.UpsertManyAsync`
