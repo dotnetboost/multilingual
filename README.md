@@ -342,11 +342,12 @@ See [docs/adding-a-provider.md](docs/adding-a-provider.md) for what a provider h
 - **Composite keys** are not supported: `Translation.EntityId` holds a single value.
 - **`AddDbContextPool`** is not supported: pooled options are built once, from the root provider,
   and cannot carry per-request services.
-- **Retrying execution strategies** (`EnableRetryOnFailure`): the save interceptor opens an
-  explicit transaction, which retrying strategies reject. Wrap the save in
-  `Database.CreateExecutionStrategy().ExecuteAsync(...)`.
-- **Entity names** default to the CLR type name; two translatable types with the same name in
-  different namespaces share rows.
+- **Retrying execution strategies** (`EnableRetryOnFailure`) work with a plain `SaveChanges`:
+  the save interceptor runs the entity, its translations and the commit inside the strategy,
+  and replays them together on a transient failure. Two side effects: other interceptors see an
+  extra `SavingChanges`/`SavedChanges` pair for the replayed save, and changes are accepted on
+  success even under `SaveChanges(acceptAllChangesOnSuccess: false)`. To avoid both, open the
+  transaction yourself inside `Database.CreateExecutionStrategy().ExecuteAsync(...)`.
 - **Adding a translatable property** needs no migration in the default mode, and a migration for
   the new column in base-language mode.
 - **Filtering and sorting** on translated values is not translated into SQL — they are not

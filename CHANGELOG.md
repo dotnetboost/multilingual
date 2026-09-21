@@ -43,6 +43,13 @@ Initial library, extracted from the MultilingualApi prototype.
   types would share a name (compared case-insensitively), instead of letting them read and
   overwrite each other's rows; a derived type inheriting its base's name is allowed.
 
+- Retrying execution strategies (`EnableRetryOnFailure`) work with a plain `SaveChanges`. The
+  interceptor's transaction used to make every save of a translatable entity throw under one;
+  the save now runs inside the strategy — transaction, entity, translations and commit replayed
+  together on a transient failure, with the change tracker restored between attempts.
+- `ITranslationManager.CompleteWrites`, split out of `WriteAsync`, so a provider that commits
+  after writing can record the values as stored only once the commit succeeds.
+
 ### Changed (relative to the prototype)
 - Translations reference languages by **code** rather than a numeric id, and use the natural
   composite key instead of a surrogate `Id`. Language endpoints are addressed by code.
@@ -64,6 +71,10 @@ Initial library, extracted from the MultilingualApi prototype.
   provider the change tracker is now restored to its pre-save state, as EF does when its own save
   fails. The same restore keeps base-language values the caller assigned when the primary save
   itself fails.
+- A failed commit after a successful translation write lost the translations on retry: the
+  write had already cleared the staged values and recorded the authored ones as stored, so the
+  retry found nothing to write. The EF Core interceptor now completes writes only after the
+  commit succeeds.
 - `MaterializedEntityRegistry` stopped recording entities past its 20,000 capacity without a
   word, so they were served with `null` translations. It now logs a warning when it fills up,
   and the next hydration throws rather than returning a partial set.

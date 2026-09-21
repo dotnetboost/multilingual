@@ -137,10 +137,25 @@ public interface ITranslationManager
     void MarkAsBaseLanguageValues(object entity, IEnumerable<string> propertyNames);
 
     /// <summary>
-    /// Validates the language codes in <paramref name="writes"/> and upserts every value.
+    /// Validates the language codes in <paramref name="writes"/> and upserts every value, then
+    /// calls <see cref="CompleteWrites"/> for them.
+    /// <para>
+    /// A provider that commits the rows itself, after this returns, should pass writes without a
+    /// <see cref="TranslationWrite.Source"/> and call <see cref="CompleteWrites"/> once the commit
+    /// has succeeded. Completing earlier would make a retry after a failed commit think the
+    /// values were already stored, and skip them.
+    /// </para>
     /// </summary>
     /// <exception cref="LanguageNotFoundException">A write names a language that does not exist.</exception>
     Task WriteAsync(IReadOnlyCollection<TranslationWrite> writes, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records that <paramref name="writes"/> are now durably stored: for each one with a
+    /// <see cref="TranslationWrite.Source"/>, discards what was <see cref="Stage"/>d for that
+    /// instance and remembers what was written, so saving the same untouched instance again
+    /// writes nothing. Writes without a source are ignored.
+    /// </summary>
+    void CompleteWrites(IReadOnlyCollection<TranslationWrite> writes);
 
     /// <summary>Removes every translation belonging to the given entities.</summary>
     Task<int> DeleteEntitiesAsync(string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default);

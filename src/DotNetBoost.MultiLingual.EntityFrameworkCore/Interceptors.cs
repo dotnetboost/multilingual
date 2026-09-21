@@ -198,9 +198,19 @@ public sealed class MultiLingualMaterializationInterceptor : IMaterializationInt
 ///
 /// <para><b>Atomicity.</b> If the caller has no transaction open, this interceptor opens one
 /// before the primary save and commits it only once the translation rows are in. A failure
-/// anywhere rolls the entity and its translations back together. (That explicit transaction is
-/// incompatible with a retrying execution strategy — with <c>EnableRetryOnFailure</c>, wrap the
-/// save in <c>Database.CreateExecutionStrategy().ExecuteAsync(...)</c> yourself.)</para>
+/// anywhere rolls the entity and its translations back together.</para>
+///
+/// <para><b>Retrying execution strategies.</b> A strategy such as <c>EnableRetryOnFailure</c>
+/// refuses a transaction it did not start, because it could not replay it. So when one is
+/// configured and the caller has no transaction, the save is run inside the strategy instead:
+/// transaction, entity, translations and commit together, replayed as a unit on a transient
+/// failure, with the change tracker restored between attempts. The caller's <c>SaveChanges</c>
+/// then returns that save's result. Two consequences: other interceptors see a
+/// <c>SavingChanges</c>/<c>SavedChanges</c> pair for the replayed save as well as the outer
+/// one, and changes are always accepted on success, even if <c>SaveChanges(false)</c> was
+/// called. A caller who opens a transaction inside
+/// <c>Database.CreateExecutionStrategy().ExecuteAsync(...)</c> keeps full control and avoids
+/// both.</para>
 ///
 /// <para><b>A failed save can be retried.</b> EF accepts the primary save's changes before
 /// <c>SavedChanges</c> runs, so a translation write that fails afterwards would otherwise leave
@@ -237,7 +247,13 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(eventData);
-        if (eventData.Context is not { } context || Begin(context) is not { } state)
+        if (eventData.Context is not { } context)
+            return result;
+
+        if (!result.HasResult && NeedsRetryingSave(context))
+            return InterceptionResult<int>.SuppressWithResult(await SaveUnderStrategyAsync(context, cancellationToken));
+
+        if (Begin(context) is not { } state)
             return result;
 
         if (NeedsOwnTransaction(context, state))
@@ -250,7 +266,13 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {
         ArgumentNullException.ThrowIfNull(eventData);
-        if (eventData.Context is not { } context || Begin(context) is not { } state)
+        if (eventData.Context is not { } context)
+            return result;
+
+        if (!result.HasResult && NeedsRetryingSave(context))
+            return InterceptionResult<int>.SuppressWithResult(SaveUnderStrategy(context));
+
+        if (Begin(context) is not { } state)
             return result;
 
         if (NeedsOwnTransaction(context, state))
@@ -298,8 +320,24 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
                 writes.Add(new TranslationWrite(pending.EntityName, entityId, pending.Values) { Source = pending.Entry.Entity });
             }
 
-            await writer.WriteAsync(writes, cancellationToken);
-            await CommitOwnedTransactionAsync(state, cancellationToken);
+            // Written without their sources, and completed only once they are durable: completing
+            // before a commit that then fails would make the retry believe they were stored.
+            await writer.WriteAsync(writes.Select(w => w with { Source = null }).ToArray(), cancellationToken);
+
+            if (state.OwnedTransaction is not null)
+            {
+                await CommitOwnedTransactionAsync(state, cancellationToken);
+                Manager.CompleteWrites(writes);
+            }
+            else if (state.DeferCompletion)
+            {
+                state.Deferred.AddRange(writes);
+            }
+            else
+            {
+                // The caller's transaction: its commit is out of sight, so this is the best moment.
+                Manager.CompleteWrites(writes);
+            }
         }
         catch
         {
@@ -487,6 +525,106 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
             Manager.MarkAsBaseLanguageValues(entry.Entity, untouched);
     }
 
+    // ------------------------------------------------------------------ retrying strategies
+
+    /// <summary>
+    /// True when this save would open its own transaction under a strategy that refuses one. Inside
+    /// a strategy's own execution <c>RetriesOnFailure</c> is false, so a caller who already wrapped
+    /// the save — and this interceptor's replayed save — take the ordinary path.
+    /// </summary>
+    private static bool NeedsRetryingSave(DbContext context) =>
+        context.Database.IsRelational()
+        && context.Database.CurrentTransaction is null
+        && System.Transactions.Transaction.Current is null
+        && context.Database.CreateExecutionStrategy().RetriesOnFailure
+        && context.ChangeTracker.Entries().Any(e => MultiLingualMetadata.IsMultiLingual(e.Metadata.ClrType));
+
+    private async Task<int> SaveUnderStrategyAsync(DbContext context, CancellationToken ct)
+    {
+        var (snapshot, state) = PrepareRetryingSave(context);
+        try
+        {
+            var saved = await context.Database.CreateExecutionStrategy().ExecuteAsync(
+                (Context: context, Snapshot: snapshot, State: state),
+                static async (_, s, ct) =>
+                {
+                    s.State.Deferred.Clear();
+                    await using var transaction = await s.Context.Database.BeginTransactionAsync(ct);
+                    try
+                    {
+                        var saved = await s.Context.SaveChangesAsync(ct);
+                        await transaction.CommitAsync(ct);
+                        return saved;
+                    }
+                    catch
+                    {
+                        // Disposing the transaction rolls the database back; this puts the change
+                        // tracker back, so the next attempt starts where this one did.
+                        s.Snapshot.Restore(s.Context);
+                        throw;
+                    }
+                },
+                verifySucceeded: null,
+                ct);
+
+            Manager.CompleteWrites(state.Deferred);
+            return saved;
+        }
+        finally
+        {
+            state.DeferCompletion = false;
+            state.Deferred.Clear();
+        }
+    }
+
+    private int SaveUnderStrategy(DbContext context)
+    {
+        var (snapshot, state) = PrepareRetryingSave(context);
+        try
+        {
+            var saved = context.Database.CreateExecutionStrategy().Execute(
+                (Context: context, Snapshot: snapshot, State: state),
+                static (_, s) =>
+                {
+                    s.State.Deferred.Clear();
+                    using var transaction = s.Context.Database.BeginTransaction();
+                    try
+                    {
+                        var saved = s.Context.SaveChanges();
+                        transaction.Commit();
+                        return saved;
+                    }
+                    catch
+                    {
+                        s.Snapshot.Restore(s.Context);
+                        throw;
+                    }
+                },
+                verifySucceeded: null);
+
+            Manager.CompleteWrites(state.Deferred);
+            return saved;
+        }
+        finally
+        {
+            state.DeferCompletion = false;
+            state.Deferred.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Snapshots the tracker before the first attempt — before <see cref="Begin"/> adjusts any
+    /// base-language property — and tells the replayed saves to leave completing their writes to
+    /// the strategy, which alone sees the commit.
+    /// </summary>
+    private (TrackerSnapshot Snapshot, SaveState State) PrepareRetryingSave(DbContext context)
+    {
+        var state = _states.GetOrCreateValue(context);
+        state.DeferCompletion = true;
+        state.Deferred.Clear();
+        return (TrackerSnapshot.Take(context.ChangeTracker.Entries().ToList()), state);
+    }
+
     private static bool NeedsOwnTransaction(DbContext context, SaveState state) =>
         state.HasWork
         && context.Database.IsRelational()
@@ -535,6 +673,12 @@ public sealed class MultiLingualSaveChangesInterceptor(IServiceProvider services
         public IDbContextTransaction? OwnedTransaction { get; set; }
         public TrackerSnapshot? Snapshot { get; set; }
         public bool IsApplying { get; set; }
+
+        /// <summary>Set while a retrying strategy owns the transaction; survives <see cref="Reset"/>.</summary>
+        public bool DeferCompletion { get; set; }
+
+        /// <summary>Writes stored by the current attempt, completed once the strategy's commit succeeds.</summary>
+        public List<TranslationWrite> Deferred { get; } = [];
         public bool HasWork => Writes.Count > 0 || Deletes.Count > 0;
 
         public void Reset()

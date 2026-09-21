@@ -4,6 +4,8 @@ using DotNetBoost.MultiLingual.Core.Models;
 using DotNetBoost.MultiLingual.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -71,7 +73,11 @@ internal sealed class Shop : IAsyncDisposable
         _root       = root;
     }
 
-    public static async Task<Shop> StartAsync()
+    /// <param name="configureSqlite">Provider options, such as an execution strategy.</param>
+    /// <param name="interceptors">Extra interceptors for every context the shop creates.</param>
+    public static async Task<Shop> StartAsync(
+        Action<SqliteDbContextOptionsBuilder>? configureSqlite = null,
+        params IInterceptor[] interceptors)
     {
         var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
         await connection.OpenAsync();
@@ -83,7 +89,10 @@ internal sealed class Shop : IAsyncDisposable
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
 
         services.AddMultiLingual().UseEntityFrameworkCore<ShopDbContext>().Build();
-        services.AddDbContext<ShopDbContext>((sp, options) => options.UseSqlite(connection).UseMultiLingual(sp));
+        services.AddDbContext<ShopDbContext>((sp, options) => options
+            .UseSqlite(connection, sqlite => configureSqlite?.Invoke(sqlite))
+            .UseMultiLingual(sp)
+            .AddInterceptors(interceptors));
 
         var shop = new Shop(connection, services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }));
 

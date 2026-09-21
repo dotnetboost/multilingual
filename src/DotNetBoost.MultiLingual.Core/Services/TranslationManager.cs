@@ -359,6 +359,13 @@ internal sealed partial class TranslationManager(
         if (rows.Count > 0)
             await store.UpsertManyAsync(rows, ct);
 
+        CompleteWrites(writes);
+    }
+
+    public void CompleteWrites(IReadOnlyCollection<TranslationWrite> writes)
+    {
+        ArgumentNullException.ThrowIfNull(writes);
+
         foreach (var write in writes)
         {
             if (write.Source is null)
