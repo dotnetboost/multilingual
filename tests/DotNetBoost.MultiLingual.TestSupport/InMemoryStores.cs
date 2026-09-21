@@ -22,15 +22,18 @@ public sealed class InMemoryTranslationStore : ITranslationStore
     }
 
     public Task<IReadOnlyList<Translation>> GetAsync(
-        string entityName, IReadOnlyCollection<string> entityIds, IReadOnlyCollection<string> languageCodes, CancellationToken ct = default)
+        string entityName, IReadOnlyCollection<string> entityIds, IReadOnlyCollection<string> languageCodes, CancellationToken ct = default) =>
+        Task.FromResult(GetMany(entityName, entityIds, languageCodes));
+
+    public IReadOnlyList<Translation> GetMany(
+        string entityName, IReadOnlyCollection<string> entityIds, IReadOnlyCollection<string> languageCodes)
     {
         lock (_gate)
         {
-            IReadOnlyList<Translation> rows = _rows.Values
+            return _rows.Values
                 .Where(t => t.EntityName == entityName && entityIds.Contains(t.EntityId) && languageCodes.Contains(t.LanguageCode))
                 .Select(Copy)
                 .ToList();
-            return Task.FromResult(rows);
         }
     }
 

@@ -11,6 +11,9 @@ public interface ITranslationHydrator
 {
     /// <summary>Hydrates everything materialized since the last call, one query per entity type.</summary>
     Task HydratePendingAsync(CancellationToken ct = default);
+
+    /// <summary>Synchronous <see cref="HydratePendingAsync"/>.</summary>
+    void HydratePending();
 }
 
 /// <summary>Default <see cref="ITranslationHydrator"/>.</summary>
@@ -24,6 +27,14 @@ public sealed class TranslationHydrator(MaterializedEntityRegistry registry, ITr
     {
         var pending = registry.Drain();
         return pending.Count == 0 ? Task.CompletedTask : translations.HydrateAsync(pending, ct);
+    }
+
+    /// <inheritdoc/>
+    public void HydratePending()
+    {
+        var pending = registry.Drain();
+        if (pending.Count > 0)
+            translations.Hydrate(pending);
     }
 }
 
@@ -78,6 +89,39 @@ public static class LocalizedQueryExtensions
 
         var item = await query.SingleOrDefaultAsync(ct);
         await hydrator.HydratePendingAsync(ct);
+        return item;
+    }
+
+    /// <summary><c>ToList</c>, then hydrate — for synchronous code paths.</summary>
+    public static List<T> ToLocalizedList<T>(this IQueryable<T> query, ITranslationHydrator hydrator)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(hydrator);
+
+        var items = query.ToList();
+        hydrator.HydratePending();
+        return items;
+    }
+
+    /// <summary><c>FirstOrDefault</c>, then hydrate — for synchronous code paths.</summary>
+    public static T? FirstLocalizedOrDefault<T>(this IQueryable<T> query, ITranslationHydrator hydrator)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(hydrator);
+
+        var item = query.FirstOrDefault();
+        hydrator.HydratePending();
+        return item;
+    }
+
+    /// <summary><c>SingleOrDefault</c>, then hydrate — for synchronous code paths.</summary>
+    public static T? SingleLocalizedOrDefault<T>(this IQueryable<T> query, ITranslationHydrator hydrator)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(hydrator);
+
+        var item = query.SingleOrDefault();
+        hydrator.HydratePending();
         return item;
     }
 }

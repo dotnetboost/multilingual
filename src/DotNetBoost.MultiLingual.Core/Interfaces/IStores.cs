@@ -11,8 +11,8 @@ namespace DotNetBoost.MultiLingual.Core.Interfaces;
 /// implementations may compare them ordinally.
 /// </para>
 /// <para>
-/// <b>Synchronous members.</b> <see cref="UpsertMany"/> and <see cref="DeleteEntities"/> serve a
-/// synchronous <c>SaveChanges</c>. Their default implementations block on the async ones, which
+/// <b>Synchronous members.</b> <see cref="GetMany"/>, <see cref="UpsertMany"/> and
+/// <see cref="DeleteEntities"/> serve synchronous reads and a synchronous <c>SaveChanges</c>. Their default implementations block on the async ones, which
 /// can deadlock under a single-threaded synchronization context (WPF, WinForms); a store whose
 /// backend has a synchronous API should override them, as the built-in stores do.
 /// </para>
@@ -44,6 +44,13 @@ public interface ITranslationStore
 
     /// <summary>Removes every row belonging to the given entities. Returns the number removed.</summary>
     Task<int> DeleteEntitiesAsync(string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default);
+
+    /// <summary>Synchronous <see cref="GetAsync"/>. See the type's remarks before relying on the default.</summary>
+    IReadOnlyList<Translation> GetMany(
+        string entityName,
+        IReadOnlyCollection<string> entityIds,
+        IReadOnlyCollection<string> languageCodes) =>
+        GetAsync(entityName, entityIds, languageCodes).GetAwaiter().GetResult();
 
     /// <summary>Synchronous <see cref="UpsertManyAsync"/>. See the type's remarks before relying on the default.</summary>
     void UpsertMany(IReadOnlyCollection<Translation> translations) =>

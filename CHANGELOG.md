@@ -91,6 +91,11 @@ Initial library, extracted from the MultilingualApi prototype.
   integration tests now also run on a case-sensitive SQL Server database, where a key compared in
   the wrong case would have made live rows look orphaned.
 
+- Synchronous reads: `ToLocalizedList`, `FirstLocalizedOrDefault` and `SingleLocalizedOrDefault`,
+  over new `ITranslationHydrator.HydratePending`, `ITranslationManager.Hydrate` and
+  `ITranslationStore.GetMany`. Like a synchronous save, they never block on asynchronous work
+  (`GetMany` has a default implementation that does, for existing custom stores; the built-in
+  stores override it).
 - `UnknownLanguageException`, a `LanguageNotFoundException` for a request that uses a language
   that does not exist — values staged in it, or `languageCode` passed to `HydrateAsync` or a query
   helper. The API maps it to 400, where its base type (the addressed language resource is

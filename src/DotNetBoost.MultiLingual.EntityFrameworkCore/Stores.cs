@@ -41,6 +41,27 @@ public sealed class EfCoreTranslationStore(DbContext context) : ITranslationStor
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<Translation> GetMany(
+        string entityName,
+        IReadOnlyCollection<string> entityIds,
+        IReadOnlyCollection<string> languageCodes)
+    {
+        ArgumentNullException.ThrowIfNull(entityIds);
+        ArgumentNullException.ThrowIfNull(languageCodes);
+
+        if (entityIds.Count == 0 || languageCodes.Count == 0)
+            return [];
+
+        var ids   = entityIds.ToArray();
+        var codes = languageCodes.ToArray();
+
+        return Translations
+            .AsNoTracking()
+            .Where(t => t.EntityName == entityName && ids.Contains(t.EntityId) && codes.Contains(t.LanguageCode))
+            .ToList();
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Translation>> GetAllAsync(string entityName, string entityId, CancellationToken ct = default) =>
         await Translations
             .AsNoTracking()

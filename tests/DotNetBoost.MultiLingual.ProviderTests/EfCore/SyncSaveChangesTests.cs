@@ -150,6 +150,40 @@ public sealed class SyncSaveChangesTests
     }
 
     [Fact]
+    public async Task ToLocalizedList_OnABlockedUiThread_DoesNotDeadlock()
+    {
+        await using var shop = await StartYieldingShopAsync();
+        await using (var seed = await shop.ScopeInAsync("en"))
+        {
+            var product = new ShopProduct { Sku = "PEN", Name = "Pen" };
+            seed.Translations.Stage(product, "fr", Name("Stylo"));
+            seed.Db.Products.Add(product);
+            await seed.Db.SaveChangesAsync();
+        }
+
+        // No language resolved, so hydration has to ask the catalog for the default — and with the
+        // cache invalidated, the catalog reloads through the yielding store. (With a resolved
+        // language the read never touches the catalog, and SQLite never yields, so a blocking
+        // implementation would slip through.)
+        await using var scope = shop.Scope();
+        scope.Get<ILanguageCatalog>().Invalidate();
+
+        List<ShopProduct>? products = null;
+        ShopProduct? first = null;
+        var (finished, error, posted) = RunOnBlockedUiThread(() =>
+        {
+            products = scope.Db.Products.AsNoTracking().ToLocalizedList(scope.Hydrator);
+            first    = scope.Db.Products.AsNoTracking().FirstLocalizedOrDefault(scope.Hydrator);
+        });
+
+        Assert.True(finished, "ToLocalizedList deadlocked waiting for work posted to the UI thread.");
+        Assert.Null(error);
+        Assert.Equal(0, posted);
+        Assert.Equal("Pen", Assert.Single(products!).Name);   // the default language, English
+        Assert.Equal("Pen", first!.Name);
+    }
+
+    [Fact]
     public async Task FailedSaveChanges_OnABlockedUiThread_RollsBack_WithoutDeadlocking()
     {
         await using var shop  = await StartYieldingShopAsync();

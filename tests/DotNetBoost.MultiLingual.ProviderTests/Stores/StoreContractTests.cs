@@ -43,6 +43,19 @@ public abstract class TranslationStoreContractTests
     }
 
     [Fact]
+    public async Task SyncGetMany_ReturnsWhatTheAsyncGetDoes()
+    {
+        var store = await CreateAsync();
+        await store.UpsertManyAsync([Row("1", "Name", "en", "Laptop"), Row("1", "Name", "ar", "حاسوب"), Row("2", "Name", "fr", "Souris")]);
+
+        static string[] Keys(IEnumerable<Translation> rows) =>
+            rows.Select(r => $"{r.EntityId}.{r.LanguageCode}={r.Value}").Order(StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(Keys(await store.GetAsync("Product", ["1", "2"], ["en", "ar"])), Keys(store.GetMany("Product", ["1", "2"], ["en", "ar"])));
+        Assert.Empty(store.GetMany("Product", [], ["en"]));
+    }
+
+    [Fact]
     public async Task SyncUpsert_InsertsAndUpdates_LikeTheAsyncOne()
     {
         var store = await CreateAsync();

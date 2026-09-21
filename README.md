@@ -209,7 +209,9 @@ with a base language configured, leaves them mapped. The save interceptor captur
 transaction — opening one if the caller has not. It also inspects `Unchanged` entries, because
 assigning only an unmapped property does not make EF consider the entity modified. The
 materialization interceptor records loaded entities (including ones reached through `Include`) so
-`ITranslationHydrator` can fill them all in one round trip.
+`ITranslationHydrator` can fill them all in one round trip. Synchronous code has the same helpers
+without the suffix — `ToLocalizedList`, `FirstLocalizedOrDefault`, `SingleLocalizedOrDefault` —
+and, like a synchronous `SaveChanges`, they never block on asynchronous work.
 
 ## Base-language mode
 

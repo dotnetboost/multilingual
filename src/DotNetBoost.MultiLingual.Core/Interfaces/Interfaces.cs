@@ -90,8 +90,18 @@ public interface ITranslationManager
     Task HydrateAsync(IEnumerable<object> entities, CancellationToken ct = default);
 
     /// <summary>As <see cref="HydrateAsync(IEnumerable{object}, CancellationToken)"/>, in a specific language.</summary>
-    /// <exception cref="LanguageNotFoundException"><paramref name="languageCode"/> does not exist.</exception>
+    /// <exception cref="UnknownLanguageException"><paramref name="languageCode"/> does not exist.</exception>
     Task HydrateAsync(IEnumerable<object> entities, string languageCode, CancellationToken ct = default);
+
+    /// <summary>
+    /// Synchronous <see cref="HydrateAsync(IEnumerable{object}, CancellationToken)"/>. Blocks on
+    /// nothing asynchronous as long as the stores and catalog implement their synchronous members.
+    /// </summary>
+    void Hydrate(IEnumerable<object> entities);
+
+    /// <summary>Synchronous <see cref="HydrateAsync(IEnumerable{object}, string, CancellationToken)"/>.</summary>
+    /// <exception cref="UnknownLanguageException"><paramref name="languageCode"/> does not exist.</exception>
+    void Hydrate(IEnumerable<object> entities, string languageCode);
 
     /// <summary>
     /// Every stored translation for one entity instance, as languageCode → (propertyName → value).

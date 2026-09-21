@@ -35,22 +35,44 @@ internal sealed partial class TranslationManager(
     {
         ArgumentNullException.ThrowIfNull(entities);
 
-        var (language, fallback) = languageContext.IsResolved
-            ? (languageContext.Current.Code, languageContext.DefaultLanguage.Code)
-            : await DefaultPairAsync(ct);
+        var plan = languageContext.IsResolved
+            ? Plan(languageContext.Current.Code, languageContext.DefaultLanguage.Code)
+            : Plan(DefaultOf(await catalog.GetAllAsync(ct)));
 
-        await HydrateCoreAsync(entities, language, fallback, ct);
+        foreach (var batch in Batches(entities))
+            Apply(batch, plan, plan.Codes.Length > 0 ? await store.GetAsync(batch.EntityName, batch.ByKey.Keys, plan.Codes, ct) : []);
     }
 
     public async Task HydrateAsync(IEnumerable<object> entities, string languageCode, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entities);
 
-        var language = await catalog.FindByCodeAsync(languageCode, ct)
-                       ?? throw new UnknownLanguageException(languageCode, "reading translations");
-        var fallback = await catalog.GetDefaultAsync(ct);
+        var plan = Plan(await catalog.GetAllAsync(ct), languageCode);
 
-        await HydrateCoreAsync(entities, language.Code, fallback.Code, ct);
+        foreach (var batch in Batches(entities))
+            Apply(batch, plan, plan.Codes.Length > 0 ? await store.GetAsync(batch.EntityName, batch.ByKey.Keys, plan.Codes, ct) : []);
+    }
+
+    public void Hydrate(IEnumerable<object> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        var plan = languageContext.IsResolved
+            ? Plan(languageContext.Current.Code, languageContext.DefaultLanguage.Code)
+            : Plan(DefaultOf(catalog.GetAll()));
+
+        foreach (var batch in Batches(entities))
+            Apply(batch, plan, plan.Codes.Length > 0 ? store.GetMany(batch.EntityName, batch.ByKey.Keys, plan.Codes) : []);
+    }
+
+    public void Hydrate(IEnumerable<object> entities, string languageCode)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        var plan = Plan(catalog.GetAll(), languageCode);
+
+        foreach (var batch in Batches(entities))
+            Apply(batch, plan, plan.Codes.Length > 0 ? store.GetMany(batch.EntityName, batch.ByKey.Keys, plan.Codes) : []);
     }
 
     public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(
@@ -72,13 +94,29 @@ internal sealed partial class TranslationManager(
                 StringComparer.OrdinalIgnoreCase);
     }
 
-    private async Task<(string Language, string Fallback)> DefaultPairAsync(CancellationToken ct)
+    // ------------------------------------------------------------------ hydration, shared by both paths
+
+    /// <summary>Which language to serve, what it falls back to, and which of them to fetch.</summary>
+    private sealed record HydrationPlan(string Language, string? Fallback, string[] Codes);
+
+    /// <summary>The instances of one type to hydrate, grouped by key.</summary>
+    private sealed record Batch(Type ClrType, string EntityName, Dictionary<string, List<object>> ByKey);
+
+    private static LanguageInfo DefaultOf(IReadOnlyList<LanguageInfo> languages) =>
+        languages.FirstOrDefault(l => l.IsDefault) ?? throw new NoLanguageConfiguredException();
+
+    private HydrationPlan Plan(LanguageInfo defaultLanguage) => Plan(defaultLanguage.Code, defaultLanguage.Code);
+
+    private HydrationPlan Plan(IReadOnlyList<LanguageInfo> languages, string languageCode)
     {
-        var defaultLanguage = await catalog.GetDefaultAsync(ct);
-        return (defaultLanguage.Code, defaultLanguage.Code);
+        var trimmed  = languageCode?.Trim();
+        var language = languages.FirstOrDefault(l => string.Equals(l.Code, trimmed, StringComparison.OrdinalIgnoreCase))
+                       ?? throw new UnknownLanguageException(languageCode ?? "", "reading translations");
+
+        return Plan(language.Code, DefaultOf(languages).Code);
     }
 
-    private async Task HydrateCoreAsync(IEnumerable<object> entities, string language, string fallback, CancellationToken ct)
+    private HydrationPlan Plan(string language, string fallback)
     {
         // Serving the base language itself ends the chain immediately: its value is the column the
         // entity was loaded with, and it is authoritative. Without this, asking for the base
@@ -98,64 +136,64 @@ internal sealed partial class TranslationManager(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        return new HydrationPlan(language, useFallback ? fallback : null, codes);
+    }
+
+    /// <summary>
+    /// The translatable entities, one batch per type — one query each — keyed so that a query
+    /// returning the same row as several untracked objects hydrates them all. Entities without a
+    /// key yet are skipped.
+    /// </summary>
+    private IEnumerable<Batch> Batches(IEnumerable<object> entities)
+    {
         var byType = entities
             .Where(e => e is not null && MultiLingualMetadata.IsMultiLingual(e.GetType()))
             .GroupBy(e => e.GetType());
 
         foreach (var group in byType)
-            await HydrateTypeAsync(group.Key, group, language, useFallback ? fallback : null, codes, ct);
-    }
-
-    private async Task HydrateTypeAsync(
-        Type clrType,
-        IEnumerable<object> entities,
-        string language,
-        string? fallback,
-        string[] codes,
-        CancellationToken ct)
-    {
-        var properties = MultiLingualMetadata.For(clrType);
-        var entityName = MultiLingualMetadata.EntityNameFor(clrType);
-
-        // key -> instances (one query can return the same row as several untracked objects)
-        var byKey = new Dictionary<string, List<object>>(StringComparer.Ordinal);
-        foreach (var entity in entities)
         {
-            var key = keys.GetKey(entity);
-            if (key is null)
-                continue;
-
-            if (!byKey.TryGetValue(key, out var list))
+            var byKey = new Dictionary<string, List<object>>(StringComparer.Ordinal);
+            foreach (var entity in group)
             {
-                list = [];
-                byKey[key] = list;
+                var key = keys.GetKey(entity);
+                if (key is null)
+                    continue;
+
+                if (!byKey.TryGetValue(key, out var list))
+                {
+                    list = [];
+                    byKey[key] = list;
+                }
+
+                list.Add(entity);
             }
 
-            list.Add(entity);
+            if (byKey.Count > 0)
+                yield return new Batch(group.Key, MultiLingualMetadata.EntityNameFor(group.Key), byKey);
         }
+    }
 
-        if (byKey.Count == 0)
-            return;
+    /// <summary>Applies the fetched <paramref name="rows"/> to <paramref name="batch"/> along the fallback chain.</summary>
+    private void Apply(Batch batch, HydrationPlan plan, IReadOnlyList<Translation> rows)
+    {
+        var properties = MultiLingualMetadata.For(batch.ClrType);
+        var language   = plan.Language;
+        var fallback   = plan.Fallback;
 
         var requested = new Dictionary<(string EntityId, string PropertyName), string?>();
         var fallbacks = new Dictionary<(string EntityId, string PropertyName), string?>();
 
-        // Only the requested language and the fallback are fetched — never every language. With
-        // nothing left to fetch (base-language mode serving the base language) there is no query.
-        if (codes.Length > 0)
+        foreach (var row in rows)
         {
-            var rows = await store.GetAsync(entityName, byKey.Keys, codes, ct);
+            var rowKey = (row.EntityId, row.PropertyName);
 
-            foreach (var row in rows)
-            {
-                var key = (row.EntityId, row.PropertyName);
-
-                if (string.Equals(row.LanguageCode, language, StringComparison.OrdinalIgnoreCase))
-                    requested[key] = row.Value;
-                else if (fallback is not null && string.Equals(row.LanguageCode, fallback, StringComparison.OrdinalIgnoreCase))
-                    fallbacks[key] = row.Value;
-            }
+            if (string.Equals(row.LanguageCode, language, StringComparison.OrdinalIgnoreCase))
+                requested[rowKey] = row.Value;
+            else if (fallback is not null && string.Equals(row.LanguageCode, fallback, StringComparison.OrdinalIgnoreCase))
+                fallbacks[rowKey] = row.Value;
         }
+
+        var byKey = batch.ByKey;
 
         var baseLanguage = options.BaseLanguage;
 

@@ -43,6 +43,37 @@ public sealed class TranslationManagerTests
     }
 
     [Fact]
+    public async Task Hydrate_Sync_UsesTheSameChain_AsTheAsyncOne()
+    {
+        await using var engine = await Engine.StartAsync();
+        await SeedLaptopAsync(engine);
+        await using var scope = await engine.ScopeInAsync("ar");
+
+        var product = new Product { Id = 1 };
+        scope.Translations.Hydrate([product]);
+        Assert.Equal(("حاسوب", "Light"), (product.Name, product.Description));   // Arabic, then English
+
+        var english = new Product { Id = 1 };
+        scope.Translations.Hydrate([english], "EN");
+        Assert.Equal("Laptop", english.Name);
+
+        Assert.Throws<UnknownLanguageException>(() => scope.Translations.Hydrate([new Product { Id = 1 }], "de"));
+    }
+
+    [Fact]
+    public async Task Hydrate_Sync_WithNoLanguageResolved_UsesTheDefault()
+    {
+        await using var engine = await Engine.StartAsync();
+        await SeedLaptopAsync(engine);
+        await using var scope = engine.Scope();
+
+        var product = new Product { Id = 1 };
+        scope.Translations.Hydrate([product]);
+
+        Assert.Equal("Laptop", product.Name);
+    }
+
+    [Fact]
     public async Task Hydrate_MissingEverywhere_IsNull()
     {
         await using var engine = await Engine.StartAsync();
