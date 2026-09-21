@@ -75,6 +75,10 @@ Initial library, extracted from the MultilingualApi prototype.
   error that names the property and the helpers, instead of EF projecting `null` (in a `Select`)
   or failing with a generic "could not be translated" (in a `Where` or `OrderBy`).
 
+- `ApplyMultiLingual()` validates every `[MultiLingual]` entity in the EF model when the model is
+  built — declarations and entity-name clashes — covering the internal entity types that
+  `Build()`'s scan of public types cannot see.
+
 ### Changed (relative to the prototype)
 - A translation row whose value is `null` is removed by the store instead of stored, so a
   cleared translation leaves nothing behind. Part of the `ITranslationStore.UpsertManyAsync`

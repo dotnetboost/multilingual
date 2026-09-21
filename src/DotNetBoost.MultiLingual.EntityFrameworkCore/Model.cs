@@ -196,13 +196,22 @@ public static class MultiLingualModelBuilderExtensions
     /// <see cref="MultiLingualOptions.BaseLanguage"/>: with a base language configured, translatable
     /// properties KEEP their column — it is where that language's value is stored — and only the
     /// other languages become translation rows.
+    /// <para>
+    /// Also validates every <c>[MultiLingual]</c> entity in the model — declarations and entity
+    /// names — as <c>Build()</c> does for public types. The model is the only place that sees
+    /// internal entity types too, so two of them sharing an entity name fail here, when the model
+    /// is first built, rather than reading and overwriting each other's rows.
+    /// </para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">A declaration is invalid, or two entity types share an entity name.</exception>
     public static ModelBuilder IgnoreMultiLingualProperties(
         this ModelBuilder modelBuilder,
         MultiLingualOptions engineOptions)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
         ArgumentNullException.ThrowIfNull(engineOptions);
+
+        MultiLingualModelValidator.Validate(modelBuilder.Model.GetEntityTypes().Select(e => e.ClrType).Distinct());
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
         {

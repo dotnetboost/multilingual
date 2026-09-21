@@ -141,8 +141,10 @@ To rename a class that has no fixed name yet, either fix it to the old name
 (`EntityName = "Product"`) or move the rows:
 `UPDATE Translations SET EntityName = 'CatalogItem' WHERE EntityName = 'Product'`.
 `Build()` refuses two unrelated types that would share a name — `Sales.Item` and
-`Library.Item`, say, or `"Shared"` and `"shared"` — and lists them. A derived type inherits its
-base's name and shares its rows, which is right for EF Core's inheritance mappings.
+`Library.Item`, say, or `"Shared"` and `"shared"` — and lists them. It can only see public types,
+so `ApplyMultiLingual()` runs the same check over every entity in the EF model, internal ones
+included, when the model is first built. A derived type inherits its base's name and shares its
+rows, which is right for EF Core's inheritance mappings.
 
 **Read path.** Values come from the requested language, then the default language, then `null`
 (or, in base-language mode, the base language's column). Only the languages that are actually
