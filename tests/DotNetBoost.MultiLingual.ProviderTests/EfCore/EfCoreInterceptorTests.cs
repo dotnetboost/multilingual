@@ -145,7 +145,7 @@ public sealed class EfCoreInterceptorTests
             scope.Translations.Stage(product, "de", Name("Stift"));   // no such language
             scope.Db.Products.Add(product);
 
-            await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+            await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Db.SaveChangesAsync());
         }
 
         await using var check = shop.Scope();

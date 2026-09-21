@@ -91,6 +91,11 @@ Initial library, extracted from the MultilingualApi prototype.
   integration tests now also run on a case-sensitive SQL Server database, where a key compared in
   the wrong case would have made live rows look orphaned.
 
+- `UnknownLanguageException`, a `LanguageNotFoundException` for a request that uses a language
+  that does not exist — values staged in it, or `languageCode` passed to `HydrateAsync` or a query
+  helper. The API maps it to 400, where its base type (the addressed language resource is
+  missing) stays 404; code catching `LanguageNotFoundException` is unaffected.
+
 ### Changed (relative to the prototype)
 - The engine has two faces. `ITranslationManager` is for application code — hydrate, read,
   stage, clear, and save or delete without a change tracker. `ITranslationWriter` holds the steps

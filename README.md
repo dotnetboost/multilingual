@@ -328,6 +328,11 @@ one active default, and a language that still has translations cannot be deleted
 first, or deactivate it. A configured base language can be neither deleted nor deactivated, even
 once it is no longer the default.
 
+`MultiLingualExceptionHandler` answers the library's exceptions with problem details. A language
+the URL addresses that does not exist (`GET /api/languages/xx`) is a 404; a request that merely
+*uses* a language that does not exist — values staged in it, or `languageCode` passed to a query
+helper — is a 400 (`UnknownLanguageException`), since what it was about does exist.
+
 ```
 GET    /api/languages                      list, default first
 GET    /api/languages/{code}

@@ -163,7 +163,7 @@ public sealed class SyncSaveChangesTests
         var (finished, error, _) = RunOnBlockedUiThread(() => scope.Db.SaveChanges());
 
         Assert.True(finished, "SaveChanges deadlocked waiting for work posted to the UI thread.");
-        Assert.IsType<Core.LanguageNotFoundException>(error);
+        Assert.IsType<Core.UnknownLanguageException>(error);
         Assert.Equal(EntityState.Added, scope.Db.Entry(product).State);
 
         await using var check = shop.Scope();

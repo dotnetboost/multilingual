@@ -11,6 +11,8 @@ public static class MultiLingualProblems
     /// <summary>The HTTP status for <paramref name="exception"/>.</summary>
     public static int StatusCodeFor(MultiLingualException exception) => exception switch
     {
+        // Before its base type: the request used a language that does not exist — its fault, 400.
+        UnknownLanguageException     => StatusCodes.Status400BadRequest,
         LanguageNotFoundException    => StatusCodes.Status404NotFound,
         InvalidLanguageException     => StatusCodes.Status400BadRequest,
         LanguageConflictException    => StatusCodes.Status409Conflict,
@@ -30,6 +32,7 @@ public static class MultiLingualProblems
             Status   = status,
             Title    = exception switch
             {
+                UnknownLanguageException     => "Unknown language",
                 LanguageNotFoundException    => "Language not found",
                 InvalidLanguageException     => "Invalid language",
                 BaseLanguageRequiredException => "Base language required",

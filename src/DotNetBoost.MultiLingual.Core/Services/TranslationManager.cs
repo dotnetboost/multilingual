@@ -47,7 +47,7 @@ internal sealed partial class TranslationManager(
         ArgumentNullException.ThrowIfNull(entities);
 
         var language = await catalog.FindByCodeAsync(languageCode, ct)
-                       ?? throw new LanguageNotFoundException(languageCode);
+                       ?? throw new UnknownLanguageException(languageCode, "reading translations");
         var fallback = await catalog.GetDefaultAsync(ct);
 
         await HydrateCoreAsync(entities, language.Code, fallback.Code, ct);
@@ -384,7 +384,7 @@ internal sealed partial class TranslationManager(
             {
                 // Loud, not silent: a value for a language nobody can read would be lost content.
                 if (!canonical.TryGetValue(languageCode, out var code))
-                    throw new LanguageNotFoundException(languageCode);
+                    throw new UnknownLanguageException(languageCode, "the values being written");
 
                 foreach (var (propertyName, value) in values)
                 {

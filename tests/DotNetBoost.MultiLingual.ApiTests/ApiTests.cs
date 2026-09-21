@@ -129,6 +129,19 @@ public sealed class LanguageEndpointTests
     }
 
     [Fact]
+    public async Task ContentInAnUnknownLanguage_Is400_NotTheLanguageResources404()
+    {
+        await using var app = await TestApp.StartAsync("en");
+
+        var unknown = await app.Client.PostAsync("/notes/de", content: null);
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Equal("application/problem+json", unknown.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("Unknown language", await unknown.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await app.Client.PostAsync("/notes/en", content: null)).StatusCode);
+    }
+
+    [Fact]
     public async Task Get_Unknown_Is404_AsProblemDetails()
     {
         await using var app = await TestApp.StartAsync("en");

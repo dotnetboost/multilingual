@@ -161,7 +161,7 @@ public sealed class TranslatedQueryTests
         await using var shop  = await Shop.StartAsync();
         await using var scope = shop.Scope();
 
-        Assert.Throws<LanguageNotFoundException>(() =>
+        Assert.Throws<UnknownLanguageException>(() =>
             scope.Db.Products.WhereTranslation(scope.Db, p => p.Name, n => n != null, languageCode: "de"));
     }
 

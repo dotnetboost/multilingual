@@ -92,7 +92,7 @@ public sealed class TranslationManagerTests
         await scope.Translations.HydrateAsync([product], "AR");
 
         Assert.Equal("حاسوب", product.Name);
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Translations.HydrateAsync([product], "de"));
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Translations.HydrateAsync([product], "de"));
     }
 
     [Fact]
@@ -254,7 +254,7 @@ public sealed class TranslationManagerTests
         scope.Translations.Stage(product, "en", Values("Pen"));
         scope.Translations.Stage(product, "de", Values("Stift"));
 
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Translations.SaveAsync(product));
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Translations.SaveAsync(product));
         Assert.Empty(engine.Translations.All);
     }
 

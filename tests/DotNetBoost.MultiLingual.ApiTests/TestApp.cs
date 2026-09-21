@@ -61,6 +61,16 @@ internal sealed class TestApp : IAsyncDisposable
         app.MapGet("/probe", (ILanguageContext language) => new Probe(
             language.Current.Code, language.DefaultLanguage.Code, language.WasRequestedLanguageHonoured));
         app.MapGet("/agnostic", () => "ok").WithMetadata(new LanguageAgnosticAttribute());
+
+        // Content written in a language given by the caller — as an endpoint accepting a
+        // "language" field would.
+        app.MapPost("/notes/{language}", async (string language, ITranslationManager translations) =>
+        {
+            var note = new Note { Id = 1 };
+            translations.Stage(note, language, new Dictionary<string, string?> { ["Text"] = "hello" });
+            await translations.SaveAsync(note);
+            return Results.NoContent();
+        });
 #if NET10_0_OR_GREATER
         app.MapOpenApi();
 #endif
@@ -86,3 +96,11 @@ internal sealed class TestApp : IAsyncDisposable
 }
 
 internal sealed record Probe(string Current, string Default, bool Honoured);
+
+/// <summary>Public, and valid, because Build() validates every public decorated type it can see.</summary>
+public sealed class Note
+{
+    public int Id { get; set; }
+
+    [DotNetBoost.MultiLingual.Core.Attributes.MultiLingual] public string? Text { get; set; }
+}

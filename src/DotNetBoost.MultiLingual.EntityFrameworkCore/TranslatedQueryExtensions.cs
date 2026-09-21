@@ -267,7 +267,7 @@ public static class TranslatedQueryExtensions
         if (languageCode is not null)
         {
             var match = catalog.GetAll().FirstOrDefault(l => string.Equals(l.Code, languageCode.Trim(), StringComparison.OrdinalIgnoreCase))
-                        ?? throw new LanguageNotFoundException(languageCode);
+                        ?? throw new UnknownLanguageException(languageCode, "a translated query");
             return (match.Code, fallback);
         }
 

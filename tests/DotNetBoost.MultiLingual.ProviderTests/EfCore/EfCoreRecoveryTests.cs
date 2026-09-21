@@ -95,7 +95,7 @@ public sealed class EfCoreRecoveryTests
         scope.Translations.Stage(product, "de", Name("Stift"));   // no such language yet
         scope.Db.Products.Add(product);
 
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Db.SaveChangesAsync());
 
         var entry = scope.Db.Entry(product);
         Assert.Equal(EntityState.Added, entry.State);
@@ -124,7 +124,7 @@ public sealed class EfCoreRecoveryTests
         scope.Translations.Stage(product, "de", Name("Stift"));
         scope.Db.Products.Add(product);
 
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Db.SaveChangesAsync());
 
         Assert.Equal(EntityState.Added, scope.Db.Entry(category).State);
         Assert.Same(category, product.Category);
@@ -150,7 +150,7 @@ public sealed class EfCoreRecoveryTests
         scope.Translations.Stage(product, "de", Name("Stift"));
         scope.Db.Products.Add(product);
 
-        Assert.Throws<LanguageNotFoundException>(() => scope.Db.SaveChanges());
+        Assert.Throws<UnknownLanguageException>(() => scope.Db.SaveChanges());
         Assert.Equal(EntityState.Added, scope.Db.Entry(product).State);
 
         await CreateLanguageAsync(shop, "de");
@@ -170,7 +170,7 @@ public sealed class EfCoreRecoveryTests
         product.Price = 42;
         scope.Translations.Stage(product, "de", Name("Laptop (de)"));
 
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Db.SaveChangesAsync());
 
         var entry = scope.Db.Entry(product);
         Assert.Equal(EntityState.Modified, entry.State);
@@ -199,7 +199,7 @@ public sealed class EfCoreRecoveryTests
         var category = await scope.Db.Categories.SingleAsync();
         scope.Translations.Stage(category, "de", Name("Bücher"));
 
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Db.SaveChangesAsync());
         Assert.Equal(EntityState.Deleted, scope.Db.Entry(doomed).State);
 
         await CreateLanguageAsync(shop, "de");
@@ -221,7 +221,7 @@ public sealed class EfCoreRecoveryTests
         product.Name = "حاسوب";
         scope.Translations.Stage(product, "de", Name("Laptop (de)"));
 
-        await Assert.ThrowsAsync<LanguageNotFoundException>(() => scope.Db.SaveChangesAsync());
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => scope.Db.SaveChangesAsync());
         Assert.True(scope.Db.Entry(product).Property(p => p.Name).IsModified);
 
         await CreateLanguageAsync(shop, "de");
