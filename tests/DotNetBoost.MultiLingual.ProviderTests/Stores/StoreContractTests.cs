@@ -89,12 +89,39 @@ public abstract class TranslationStoreContractTests
     }
 
     [Fact]
-    public async Task Upsert_StoresNullValues()
+    public async Task Upsert_NullValue_RemovesTheRow()
     {
         var store = await CreateAsync();
-        await store.UpsertManyAsync([Row("1", "Name", "en", null)]);
+        await store.UpsertManyAsync([Row("1", "Name", "en", "Laptop"), Row("1", "Name", "ar", "حاسوب")]);
 
-        Assert.Null(Assert.Single(await store.GetAsync("Product", ["1"], ["en"])).Value);
+        await store.UpsertManyAsync([Row("1", "Name", "en", null), Row("2", "Name", "en", null)]);
+
+        var row = Assert.Single(await store.GetAsync("Product", ["1", "2"], ["en", "ar"]));
+        Assert.Equal("ar", row.LanguageCode);
+    }
+
+    [Fact]
+    public async Task Upsert_NullThenValueInOneBatch_LaterRowWins()
+    {
+        var store = await CreateAsync();
+        await store.UpsertManyAsync([Row("1", "Name", "en", "old")]);
+
+        await store.UpsertManyAsync([Row("1", "Name", "en", null), Row("1", "Name", "en", "new")]);
+        Assert.Equal("new", Assert.Single(await store.GetAsync("Product", ["1"], ["en"])).Value);
+
+        await store.UpsertManyAsync([Row("2", "Name", "en", "added"), Row("2", "Name", "en", null)]);
+        Assert.Empty(await store.GetAsync("Product", ["2"], ["en"]));
+    }
+
+    [Fact]
+    public async Task SyncUpsert_NullValue_RemovesTheRow()
+    {
+        var store = await CreateAsync();
+        store.UpsertMany([Row("1", "Name", "en", "Laptop")]);
+
+        store.UpsertMany([Row("1", "Name", "en", null)]);
+
+        Assert.Empty(await store.GetAsync("Product", ["1"], ["en"]));
     }
 
     [Fact]

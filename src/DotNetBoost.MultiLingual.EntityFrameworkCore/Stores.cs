@@ -94,6 +94,15 @@ public sealed class EfCoreTranslationStore(DbContext context) : ITranslationStor
         {
             var key = (row.EntityId, row.PropertyName, row.LanguageCode);
 
+            // No value, no row. Removing an instance added earlier in this batch just detaches it.
+            if (row.Value is null)
+            {
+                if (index.Remove(key, out var stored))
+                    Translations.Remove(stored);
+
+                continue;
+            }
+
             if (index.TryGetValue(key, out var current))
             {
                 // Assign only on change, so an unchanged value never costs an UPDATE.

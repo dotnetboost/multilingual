@@ -57,12 +57,17 @@ Initial library, extracted from the MultilingualApi prototype.
   `ILanguageChangeSignal` and `UseLanguageChangeSignal<T>()` plug in other backends. Adds a
   `Microsoft.Extensions.Caching.Abstractions` reference to `DotNetBoost.MultiLingual.Core`.
 
+- `ITranslationManager.Clear(entity, languageCode, params propertyNames)` removes a stored
+  translation on the next save. Assigning `null` to a property still means "not supplied".
 - A write for a key longer than `EntityKey.MaxLength` (64) is refused with a message naming the
   entity, instead of failing in the database — or, on SQLite, being stored untruncated.
 - The integration tests run on net8.0 as well as net10.0, against EF Core 8's SQL Server and
   PostgreSQL providers.
 
 ### Changed (relative to the prototype)
+- A translation row whose value is `null` is removed by the store instead of stored, so a
+  cleared translation leaves nothing behind. Part of the `ITranslationStore.UpsertManyAsync`
+  contract; the store contract tests check it.
 - Translations reference languages by **code** rather than a numeric id, and use the natural
   composite key instead of a surrogate `Id`. Language endpoints are addressed by code.
 - Language codes are immutable once created.

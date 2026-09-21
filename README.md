@@ -154,6 +154,15 @@ French (falling back to English) and saving a price change never turns the Engli
 French translation. The same protection covers a value that arrived from a base-language column
 rather than from the read path.
 
+To remove a stored translation, say so explicitly — the row is deleted on the next save, and
+reads fall back as for any missing value:
+
+```csharp
+translations.Clear(product, "fr", nameof(Product.Name));   // one property
+translations.Clear(product, "fr");                         // every translatable property
+await db.SaveChangesAsync();
+```
+
 **EF Core specifics.** `ApplyMultiLingual()` removes translatable properties from the model — or,
 with a base language configured, leaves them mapped. The save interceptor captures values in
 `SavingChanges` and writes them in `SavedChanges`, once generated keys exist, in the same

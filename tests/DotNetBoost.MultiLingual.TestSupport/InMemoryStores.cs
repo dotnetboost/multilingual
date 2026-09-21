@@ -58,7 +58,13 @@ public sealed class InMemoryTranslationStore : ITranslationStore
         {
             UpsertCalls++;
             foreach (var row in translations)
-                _rows[(row.EntityName, row.EntityId, row.PropertyName, row.LanguageCode)] = Copy(row);
+            {
+                var key = (row.EntityName, row.EntityId, row.PropertyName, row.LanguageCode);
+                if (row.Value is null)
+                    _rows.Remove(key);
+                else
+                    _rows[key] = Copy(row);
+            }
         }
     }
 

@@ -119,6 +119,22 @@ public interface ITranslationManager
     /// <exception cref="ArgumentException">A property name is not translatable on this type.</exception>
     void Stage(object entity, string languageCode, IReadOnlyDictionary<string, string?> values);
 
+    /// <summary>
+    /// Queues the removal of <paramref name="entity"/>'s stored translation in
+    /// <paramref name="languageCode"/> for the named properties — every translatable property
+    /// when none are named. Applied by the next save of that instance; reads then fall back as
+    /// for any missing translation.
+    /// <para>
+    /// This is the way to clear a value: assigning <c>null</c> to a property means "not supplied"
+    /// and leaves what is stored alone. In base-language mode the base language is not a
+    /// translation, so it cannot be cleared here; assign <c>null</c> to the property instead.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// A property name is not translatable on this type, or <paramref name="languageCode"/> is the base language.
+    /// </exception>
+    void Clear(object entity, string languageCode, params string[] propertyNames);
+
     // ------------------------------------------------------------------ provider building blocks
 
     /// <summary>

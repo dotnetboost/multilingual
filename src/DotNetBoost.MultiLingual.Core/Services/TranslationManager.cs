@@ -243,6 +243,20 @@ internal sealed partial class TranslationManager(
         writeBuffer.Stage(entity, languageCode.Trim(), values);
     }
 
+    public void Clear(object entity, string languageCode, params string[] propertyNames)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(propertyNames);
+
+        var names = propertyNames.Length > 0
+            ? propertyNames
+            : MultiLingualMetadata.For(entity.GetType()).Select(p => p.Name).ToArray();
+
+        // A staged null reaches the store as a null row, which the store contract turns into a
+        // removal. Stage does the validation: translatable names, and not the base language.
+        Stage(entity, languageCode, names.Distinct(StringComparer.Ordinal).ToDictionary(n => n, _ => (string?)null, StringComparer.Ordinal));
+    }
+
     public void MarkAsBaseLanguageValues(object entity, IEnumerable<string> propertyNames)
     {
         ArgumentNullException.ThrowIfNull(entity);

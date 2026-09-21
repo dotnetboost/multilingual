@@ -34,9 +34,11 @@ public interface ITranslationStore
 
     /// <summary>
     /// Inserts or updates rows matched on their natural key
-    /// (entity name, entity id, property name, language code). When the batch repeats a key,
-    /// the later row wins. Atomic where the backend supports it, and enlisted in whatever
-    /// unit of work the provider is currently part of.
+    /// (entity name, entity id, property name, language code). A row whose
+    /// <see cref="Translation.Value"/> is <c>null</c> means "no translation": remove the stored
+    /// row, if there is one, rather than storing a null. When the batch repeats a key, the later
+    /// row wins. Atomic where the backend supports it, and enlisted in whatever unit of work the
+    /// provider is currently part of.
     /// </summary>
     Task UpsertManyAsync(IReadOnlyCollection<Translation> translations, CancellationToken ct = default);
 
