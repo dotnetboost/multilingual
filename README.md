@@ -422,6 +422,10 @@ See [docs/adding-a-provider.md](docs/adding-a-provider.md) for what a provider h
   in the database, only rows whose entity is gone, and leaves rows under entity names this
   context does not know.
 - **Composite keys** are not supported: `Translation.EntityId` holds a single value.
+- **SQL Server compatibility level 130 or higher** (SQL Server 2016+). EF Core 8 and later send a
+  list of keys — which reads and writes of translations use — as one JSON parameter that SQL
+  Server unpacks with `OPENJSON`. On a database at an older level, say so and EF sends the keys
+  inline instead: `UseSqlServer(connectionString, o => o.UseCompatibilityLevel(120))`.
 - **Keys up to 64 characters.** Every numeric key and a `Guid` fit; a longer `string` key is
   refused when its translations are written (`EntityKey.MaxLength`).
 - **`AddDbContextPool`** is not supported: pooled options are built once, from the root provider,
