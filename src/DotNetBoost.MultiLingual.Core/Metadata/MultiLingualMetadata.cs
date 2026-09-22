@@ -75,7 +75,7 @@ public static class MultiLingualMetadata
     public static IReadOnlyList<TranslatableProperty> For(Type clrType)
     {
         ArgumentNullException.ThrowIfNull(clrType);
-        return Cache.GetOrAdd(clrType, static type => Build(type));
+        return Cache.GetOrAdd(clrType, static type => Build(EntityClass(type)));
     }
 
     /// <summary>True when the type has at least one translatable property.</summary>
@@ -102,7 +102,24 @@ public static class MultiLingualMetadata
     public static string EntityNameFor(Type clrType)
     {
         ArgumentNullException.ThrowIfNull(clrType);
-        return EntityNames.GetOrAdd(clrType, static type => ResolveEntityName(type));
+        return EntityNames.GetOrAdd(clrType, static type => ResolveEntityName(EntityClass(type)));
+    }
+
+    /// <summary>
+    /// The application's own class for <paramref name="clrType"/>. A class generated at runtime —
+    /// EF Core's lazy-loading proxies, or any other proxy built in a dynamic assembly — stands for
+    /// the entity class it derives from, and must be named and described as that class: a proxy
+    /// named <c>ProductProxy</c> would otherwise read and write translations nobody else can find.
+    /// </summary>
+    public static Type EntityClass(Type clrType)
+    {
+        ArgumentNullException.ThrowIfNull(clrType);
+
+        var type = clrType;
+        while (type.Assembly.IsDynamic && type.BaseType is { } baseType && baseType != typeof(object))
+            type = baseType;
+
+        return type;
     }
 
     private static string ResolveEntityName(Type type)

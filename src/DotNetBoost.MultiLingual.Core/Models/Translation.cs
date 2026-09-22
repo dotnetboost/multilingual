@@ -10,8 +10,12 @@ namespace DotNetBoost.MultiLingual.Core.Models;
 /// <see cref="LanguageCode"/>) is unique by definition, maps directly onto a relational
 /// composite key or a MongoDB compound index, and leads with the columns every read filters on.
 /// </para>
+/// <para>
+/// Not sealed, on purpose: it is an entity type in the application's own context, and EF Core's
+/// lazy-loading proxies refuse a model that contains a sealed entity type.
+/// </para>
 /// </summary>
-public sealed class Translation
+public class Translation
 {
     /// <summary>Logical name of the owning entity type, e.g. <c>Product</c>.</summary>
     public string EntityName { get; set; } = string.Empty;

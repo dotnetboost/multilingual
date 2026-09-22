@@ -88,6 +88,7 @@ internal static class QueryTranslation
     ];
 
     private static readonly ConcurrentDictionary<IEntityType, bool> Reaches = new();
+    private static readonly ConcurrentDictionary<(IModel, Type), IReadOnlyList<HierarchyProperty>> Hierarchies = new();
 
     /// <summary>
     /// Translates <paramref name="query"/>. Returns it unchanged — markers aside — when it opts out
@@ -121,6 +122,39 @@ internal static class QueryTranslation
         query = new ReadTranslator(chain).Visit(query);
         return new ResultFiller(chain).Wrap(query);
     }
+
+    /// <summary>A translatable property, and the entity class that declares it.</summary>
+    internal sealed record HierarchyProperty(Type Owner, TranslatableProperty Property);
+
+    /// <summary>
+    /// The translatable properties an entity queried as <paramref name="declared"/> can have: those
+    /// of <paramref name="declared"/>, then those only its derived entity types add — a query over
+    /// the base of a hierarchy returns derived entities too. The order is the order of the values
+    /// a query loads, at compile time and when they are applied alike.
+    /// </summary>
+    internal static IReadOnlyList<HierarchyProperty> Hierarchy(IModel model, Type declared) =>
+        Hierarchies.GetOrAdd((model, MultiLingualMetadata.EntityClass(declared)), static key =>
+        {
+            var (model, type) = key;
+            var properties = MultiLingualMetadata.For(type).Select(p => new HierarchyProperty(type, p)).ToList();
+            var names = properties.Select(p => p.Property.Name).ToHashSet(StringComparer.Ordinal);
+
+            var derived = model.FindEntityType(type)?.GetDerivedTypes()
+                              .Select(t => t.ClrType)
+                              .OrderBy(t => t.FullName, StringComparer.Ordinal)
+                          ?? Enumerable.Empty<Type>();
+
+            foreach (var derivedType in derived)
+            {
+                foreach (var property in MultiLingualMetadata.For(derivedType))
+                {
+                    if (names.Add(property.Name))
+                        properties.Add(new HierarchyProperty(derivedType, property));
+                }
+            }
+
+            return properties;
+        });
 
     /// <summary>True when entities of <paramref name="entityType"/> can hold translated values, or lead to some.</summary>
     public static bool ReachesTranslations(IEntityType entityType) =>
@@ -176,21 +210,25 @@ internal static class QueryTranslation
             return body;
         }
 
-        /// <summary>Two per translatable property of <paramref name="declared"/>: language, then fallback.</summary>
+        /// <summary>
+        /// Two per property of <see cref="Hierarchy"/>: language, then fallback. A derived type's
+        /// own property is looked up under that type's entity name, with the key the whole
+        /// hierarchy shares.
+        /// </summary>
         public NewArrayExpression Values(Expression entity, Type declared) =>
-            Expression.NewArrayInit(typeof(string), MultiLingualMetadata.For(declared).SelectMany(property => new[]
+            Expression.NewArrayInit(typeof(string), Hierarchy(Model, declared).SelectMany(p => new[]
             {
-                Lookup(entity, property.Name, LanguageCode),
-                FallbackCode is { } fallback ? Lookup(entity, property.Name, fallback) : Expression.Constant(null, typeof(string))
+                Lookup(entity, p.Property.Name, LanguageCode, p.Owner),
+                FallbackCode is { } fallback ? Lookup(entity, p.Property.Name, fallback, p.Owner) : Expression.Constant(null, typeof(string))
             }));
 
-        private Expression Lookup(Expression entity, string propertyName, Expression code)
+        private Expression Lookup(Expression entity, string propertyName, Expression code, Type? owner = null)
         {
             var parameters = LookupTemplate.Parameters;
             return new Replacer(new Dictionary<Expression, Expression>
             {
                 [parameters[0]] = context.Set<Translation>().AsQueryable().Expression,
-                [parameters[1]] = Expression.Constant(MultiLingualMetadata.EntityNameFor(entity.Type)),
+                [parameters[1]] = Expression.Constant(MultiLingualMetadata.EntityNameFor(owner ?? entity.Type)),
                 [parameters[2]] = Expression.Constant(propertyName),
                 [parameters[3]] = code,
                 [parameters[4]] = EntityKeys.KeyAsString(context, entity)
@@ -324,7 +362,7 @@ internal static class QueryTranslation
         {
             var bindings = new List<MemberBinding>();
 
-            if (MultiLingualMetadata.IsMultiLingual(declared))
+            if (Hierarchy(chain.Model, declared).Count > 0)
                 bindings.Add(Expression.Bind(Member<LoadedValues>(nameof(LoadedValues.Values)), chain.Values(entity, declared)));
 
             var entityType  = chain.Model.FindEntityType(declared);
@@ -392,7 +430,8 @@ internal static class QueryTranslation
         /// <summary>The fill of one entity found in a projection — without includes.</summary>
         private MethodCallExpression? FillOne(Expression entity)
         {
-            if (!MultiLingualMetadata.IsMultiLingual(entity.Type)
+            if (chain.Model.FindEntityType(entity.Type) is null
+                || Hierarchy(chain.Model, entity.Type).Count == 0
                 || ValuesFor(entity, entity.Type, Includes.Node.Empty, key: false) is not { } values)
             {
                 return null;

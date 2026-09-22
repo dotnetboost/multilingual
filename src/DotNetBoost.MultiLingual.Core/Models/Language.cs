@@ -4,8 +4,12 @@ namespace DotNetBoost.MultiLingual.Core.Models;
 /// A language content can be served in. Exactly one language is the default at any moment —
 /// an invariant <see cref="Interfaces.ILanguageManager"/> maintains and every
 /// <see cref="Interfaces.ILanguageStore"/> must preserve atomically.
+/// <para>
+/// Not sealed, on purpose: it is an entity type in the application's own context, and EF Core's
+/// lazy-loading proxies refuse a model that contains a sealed entity type.
+/// </para>
 /// </summary>
-public sealed class Language
+public class Language
 {
     /// <summary>
     /// Canonical ISO 639-1 code, optionally with a region: <c>en</c>, <c>ar</c>, <c>pt-BR</c>.

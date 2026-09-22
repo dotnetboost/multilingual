@@ -243,9 +243,11 @@ var rows = await db.Products
 ```
 
 That covers `ToListAsync`, `First…`, `Single…`, `Last…`, `ElementAt…`, `Find`, `foreach` /
-`AsAsyncEnumerable`, synchronous queries, tracking and no-tracking queries, explicit loading,
-split queries, and `Include` / `ThenInclude` — collection, reference, filtered, string-based and
-automatic includes alike. A tracked entity that a later query finds again is refreshed only where
+`AsAsyncEnumerable`, synchronous queries, tracking and no-tracking queries, explicit and lazy
+loading (lazy-loading proxies included), split queries, compiled queries (`EF.CompileAsyncQuery`),
+`Concat` / `Union`, queries composed on `FromSql`, `ExecuteUpdate` / `ExecuteDelete`, inheritance
+(a query over a base type fills each derived type's own properties), and `Include` / `ThenInclude`
+— collection, reference, filtered, string-based and automatic includes alike. A tracked entity that a later query finds again is refreshed only where
 nobody has edited it since, so a read never overwrites an unsaved change.
 
 Two switches change one query:

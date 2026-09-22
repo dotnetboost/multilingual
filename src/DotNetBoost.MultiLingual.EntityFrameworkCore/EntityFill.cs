@@ -128,7 +128,8 @@ internal static class EntityFill
                 record.Values = null;
             }
 
-            scope.Engine.ApplyLoaded(entity, MultiLingualMetadata.For(declared), language, fallback, values.Values, materialized);
+            var (properties, loaded) = Applicable(context.Model, declared, entity.GetType(), values.Values);
+            scope.Engine.ApplyLoaded(entity, properties, language, fallback, loaded, materialized);
         }
 
         if (values.Navigations is null)
@@ -159,6 +160,39 @@ internal static class EntityFill
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// The properties <paramref name="values"/> were loaded for — those of the query's declared type
+    /// and of its derived types — narrowed to the ones the entity's actual type has.
+    /// </summary>
+    private static (IReadOnlyList<TranslatableProperty> Properties, IReadOnlyList<string?> Values) Applicable(
+        IModel model, Type declared, Type actual, string?[] values)
+    {
+        var hierarchy = QueryTranslation.Hierarchy(model, declared);
+        var entityClass = MultiLingualMetadata.EntityClass(actual);
+
+        if (hierarchy.All(p => p.Owner.IsAssignableFrom(entityClass)) && hierarchy.Count * 2 == values.Length)
+            return (hierarchy.Select(p => p.Property).ToList(), values);
+
+        var own        = MultiLingualMetadata.For(entityClass);
+        var properties = new List<TranslatableProperty>();
+        var applicable = new List<string?>();
+
+        for (var i = 0; i < hierarchy.Count && (2 * i) + 1 < values.Length; i++)
+        {
+            if (!hierarchy[i].Owner.IsAssignableFrom(entityClass)
+                || own.FirstOrDefault(p => string.Equals(p.Name, hierarchy[i].Property.Name, StringComparison.Ordinal)) is not { } property)
+            {
+                continue;
+            }
+
+            properties.Add(property);
+            applicable.Add(values[2 * i]);
+            applicable.Add(values[(2 * i) + 1]);
+        }
+
+        return (properties, applicable);
     }
 
     /// <summary>How to read a navigation, and the entity type it leads to.</summary>

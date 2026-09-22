@@ -54,6 +54,11 @@ keeps the versions its runtime ships.
   query's own SQL statement. `ToListAsync`, `First…` / `Single…`, `Find`, streaming, sync queries,
   explicit loading, split queries and every kind of `Include` are covered.
 - A tracked entity a later query finds again is refreshed only where nobody has edited it since.
+- Also covered: lazy-loading proxies, compiled queries, `Concat` / `Union`, queries composed on
+  `FromSql`, `ExecuteUpdate`, automatic includes, and inheritance — a query over a base type fills
+  the properties each derived type adds.
+- `Translation` and `Language` are no longer sealed, so a model that uses EF Core's lazy-loading
+  proxies can include them; a proxy is named and described as the entity class it stands for.
 
 ### Querying on translated text
 - Plain LINQ: every read of a translatable property in `Where`, `OrderBy` and `Select` — through
