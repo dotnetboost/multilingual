@@ -22,6 +22,7 @@ export function useContentItem(type: ContentType, id: MaybeRefOrGetter<number>) 
   const toast = useToast()
   const { active, defaultLanguage, isBase, ensureLoaded } = useLanguages()
   const { baseLanguage } = useRuntimeConfig().public
+  const { t } = useI18n()
 
   const endpoint = computed(() => `/api/${type.route}/${toValue(id)}`)
 
@@ -155,7 +156,7 @@ export function useContentItem(type: ContentType, id: MaybeRefOrGetter<number>) 
       })
 
       toast.add({
-        title: `Saved in ${code}`,
+        title: t('editor.toasts.saved', { code }),
         // The sample's confirmation, already in the language that was written.
         description: saved.message,
         icon: 'i-lucide-check',
@@ -170,7 +171,7 @@ export function useContentItem(type: ContentType, id: MaybeRefOrGetter<number>) 
       await load()
       return true
     } catch (error) {
-      toast.add({ title: `Save in ${code} failed`, description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
+      toast.add({ title: t('editor.toasts.saveFailed', { code }), description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
       return false
     } finally {
       saving.value = null
@@ -194,12 +195,12 @@ export function useContentItem(type: ContentType, id: MaybeRefOrGetter<number>) 
     try {
       const result = await $fetch<{ message?: string }>(`${endpoint.value}/translations/${code}`, { method: 'DELETE' })
 
-      toast.add({ title: `${code} translation cleared`, description: result.message, icon: 'i-lucide-eraser', color: 'success' })
+      toast.add({ title: t('editor.toasts.cleared', { code }), description: result.message, icon: 'i-lucide-eraser', color: 'success' })
       state[code] = { ...stored.value[code] } as Record<string, string>
       await load()
       return true
     } catch (error) {
-      toast.add({ title: `Clearing ${code} failed`, description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
+      toast.add({ title: t('editor.toasts.clearFailed', { code }), description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
       return false
     } finally {
       saving.value = null

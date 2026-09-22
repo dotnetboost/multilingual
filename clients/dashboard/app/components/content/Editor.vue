@@ -17,6 +17,10 @@ const emit = defineEmits<{
 
 const { active, defaultLanguage, find, isBase } = useLanguages()
 const { baseLanguage } = useRuntimeConfig().public
+const { t, tType, localizeType } = useI18n()
+
+/** The type's labels in the dashboard's language. */
+const text = computed(() => localizeType(props.type))
 
 const {
   state, stored, storedDetails, details, loadError, saving,
@@ -65,12 +69,12 @@ function placeholder(key: string) {
 
 function status(code: string) {
   if (isBase(code)) {
-    return { label: 'base column', color: 'info' as const, icon: 'i-lucide-database' }
+    return { label: t('editor.status.base'), color: 'info' as const, icon: 'i-lucide-database' }
   }
 
   return hasContent(code)
-    ? { label: 'translated', color: 'success' as const, icon: 'i-lucide-check' }
-    : { label: 'falls back', color: 'warning' as const, icon: 'i-lucide-corner-down-left' }
+    ? { label: t('editor.status.translated'), color: 'success' as const, icon: 'i-lucide-check' }
+    : { label: t('editor.status.fallsBack'), color: 'warning' as const, icon: 'i-lucide-corner-down-left' }
 }
 
 watch(editing, loadOptions, { immediate: true })
@@ -83,9 +87,9 @@ watch(editing, loadOptions, { immediate: true })
       color="error"
       variant="subtle"
       icon="i-lucide-plug-zap"
-      :title="`Could not load this ${type.name.toLowerCase()}`"
+      :title="tType(type, 'itemLoadError')"
       :description="loadError"
-      :actions="[{ label: 'Try again', color: 'neutral', variant: 'outline', onClick: load }]"
+      :actions="[{ label: t('common.tryAgain'), color: 'neutral', variant: 'outline', onClick: load }]"
     />
 
     <template v-else-if="language && state[editing]">
@@ -99,7 +103,7 @@ watch(editing, loadOptions, { immediate: true })
         <UPageCard variant="subtle" :ui="{ container: 'gap-y-4' }">
           <template #header>
             <div class="flex flex-col gap-1">
-              <span class="text-xs font-medium uppercase tracking-wide text-muted">Editing in</span>
+              <span class="text-xs font-medium uppercase tracking-wide text-muted">{{ t('editor.editingIn') }}</span>
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-lg font-semibold text-highlighted" :dir="language.direction">{{ language.name }}</span>
                 <UBadge
@@ -112,30 +116,30 @@ watch(editing, loadOptions, { immediate: true })
                   v-if="language.isDefault"
                   color="primary"
                   variant="subtle"
-                  label="default"
+                  :label="t('languages.roles.default')"
                 />
                 <UBadge variant="subtle" v-bind="status(language.code)" />
               </div>
             </div>
           </template>
 
-          <USeparator label="Details — the same in every language" :ui="{ label: 'text-muted' }" />
+          <USeparator :label="t('editor.detailsSeparator')" :ui="{ label: 'text-muted' }" />
 
           <ContentDetailFields
-            :fields="type.details"
+            :fields="text.details"
             :state="details"
             :options="options"
             :stored="storedDetails"
           />
 
-          <USeparator :label="`Translated — ${language.name}`" :ui="{ label: 'text-muted' }" />
+          <USeparator :label="t('editor.translatedSeparator', { name: language.name })" :ui="{ label: 'text-muted' }" />
 
           <UFormField
-            v-for="field in type.fields"
+            v-for="field in text.fields"
             :key="field.key"
             :name="field.key"
             :label="field.label"
-            :hint="stored[editing]?.[field.key] === undefined && !isBase(editing) ? 'not stored' : undefined"
+            :hint="stored[editing]?.[field.key] === undefined && !isBase(editing) ? t('editor.notStored') : undefined"
           >
             <UTextarea
               v-if="field.multiline"
@@ -159,7 +163,7 @@ watch(editing, loadOptions, { immediate: true })
           <div class="flex items-center gap-2">
             <UButton
               v-if="type.clearable && !isBase(editing) && hasContent(editing)"
-              label="Clear translation"
+              :label="t('editor.clear')"
               icon="i-lucide-eraser"
               color="error"
               variant="ghost"
@@ -168,7 +172,7 @@ watch(editing, loadOptions, { immediate: true })
             />
             <div class="ms-auto flex items-center gap-2">
               <UButton
-                label="Reset"
+                :label="t('common.reset')"
                 color="neutral"
                 variant="ghost"
                 :disabled="!dirty(editing) || saving !== null"
@@ -177,7 +181,7 @@ watch(editing, loadOptions, { immediate: true })
               <UButton
                 :form="`content-editor-${type.route}`"
                 type="submit"
-                :label="`Save in ${language.name}`"
+                :label="t('editor.saveIn', { name: language.name })"
                 :loading="saving === editing"
                 :disabled="!dirty(editing) || (saving !== null && saving !== editing)"
               />
@@ -187,8 +191,8 @@ watch(editing, loadOptions, { immediate: true })
       </UForm>
 
       <UPageCard
-        title="Languages"
-        description="Pick the language to edit the translated fields in. Unsaved edits in each are kept until you save or reset them."
+        :title="t('editor.languagesTitle')"
+        :description="t('editor.languagesDescription')"
         variant="naked"
       >
         <ul class="divide-y divide-default rounded-lg border border-default">
@@ -211,7 +215,7 @@ watch(editing, loadOptions, { immediate: true })
               color="primary"
               variant="subtle"
               size="sm"
-              label="default"
+              :label="t('languages.roles.default')"
             />
             <UBadge variant="subtle" size="sm" v-bind="status(candidate.code)" />
             <UBadge
@@ -219,13 +223,13 @@ watch(editing, loadOptions, { immediate: true })
               color="warning"
               variant="outline"
               size="sm"
-              label="unsaved"
+              :label="t('editor.unsaved')"
             />
 
             <UButton
               v-if="candidate.code === editing"
               class="ms-auto"
-              label="Editing"
+              :label="t('editor.editing')"
               icon="i-lucide-pencil"
               color="neutral"
               variant="soft"
@@ -235,7 +239,7 @@ watch(editing, loadOptions, { immediate: true })
             <UButton
               v-else
               class="ms-auto"
-              :label="`Edit in ${candidate.name}`"
+              :label="t('editor.editIn', { name: candidate.name })"
               icon="i-lucide-languages"
               color="neutral"
               variant="outline"
@@ -248,10 +252,9 @@ watch(editing, loadOptions, { immediate: true })
 
       <p class="text-sm text-muted">
         <template v-if="detailsDirty">
-          Unsaved detail changes are saved with whichever language you save next.
+          {{ t('editor.detailsPending') }}
         </template>
-        Placeholders show what a read falls back to while a language has nothing stored. Inactive
-        languages are not listed: nothing is served in them.
+        {{ t('editor.footnote') }}
       </p>
     </template>
 
@@ -261,9 +264,9 @@ watch(editing, loadOptions, { immediate: true })
 
     <ConfirmModal
       :open="clearing"
-      :title="`Clear the ${editing} translation?`"
-      description="Every translated field of this item in that language is removed. Reads in it then fall back, as for a language never written."
-      confirm-label="Clear translation"
+      :title="t('editor.confirmClear.title', { code: editing })"
+      :description="t('editor.confirmClear.description')"
+      :confirm-label="t('editor.confirmClear.label')"
       :loading="saving !== null"
       @update:open="clearing = $event"
       @confirm="onClear"

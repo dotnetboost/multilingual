@@ -22,6 +22,10 @@ const emit = defineEmits<{
 const toast = useToast()
 const { baseLanguage } = useRuntimeConfig().public
 const { active, defaultLanguage, find } = useLanguages()
+const { t, tType, localizeType } = useI18n()
+
+/** The type's labels in the dashboard's language. */
+const text = computed(() => localizeType(props.type))
 
 const form = useTemplateRef('form')
 
@@ -105,7 +109,7 @@ async function submit() {
     })
 
     toast.add({
-      title: `${props.type.name} created`,
+      title: tType(props.type, 'created'),
       // The sample's confirmation, in the language it was created in.
       description: created.message,
       icon: 'i-lucide-check',
@@ -125,8 +129,8 @@ async function submit() {
 <template>
   <UModal
     v-model:open="open"
-    :title="`New ${type.name.toLowerCase()}`"
-    :description="`POST api/${type.route}. The translatable fields are written in one language; add the others afterwards from the editor.`"
+    :title="tType(type, 'new')"
+    :description="t('create.description', { route: type.route })"
   >
     <template #body>
       <UForm
@@ -146,16 +150,14 @@ async function submit() {
           :description="problem"
         />
 
-        <ContentDetailFields :fields="type.details" :state="state" :options="options" />
+        <ContentDetailFields :fields="text.details" :state="state" :options="options" />
 
         <USeparator />
 
         <UFormField
           name="language"
-          label="Written in"
-          :description="baseLanguage
-            ? `The base language. The API only creates in it — every other language hangs off the base value.`
-            : 'Sent as Accept-Language. Reads in the other languages fall back to this one until they are written.'"
+          :label="t('create.writtenIn')"
+          :description="baseLanguage ? t('create.baseDescription') : t('create.acceptDescription')"
         >
           <USelect
             v-model="language"
@@ -168,7 +170,7 @@ async function submit() {
         </UFormField>
 
         <UFormField
-          v-for="field in type.fields"
+          v-for="field in text.fields"
           :key="field.key"
           :name="field.key"
           :label="field.label"
@@ -195,7 +197,7 @@ async function submit() {
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton
-          label="Cancel"
+          :label="t('common.cancel')"
           color="neutral"
           variant="ghost"
           @click="open = false"
@@ -203,7 +205,7 @@ async function submit() {
         <UButton
           :form="`create-${type.route}`"
           type="submit"
-          :label="`Create ${type.name.toLowerCase()}`"
+          :label="tType(type, 'create')"
           :loading="saving"
         />
       </div>

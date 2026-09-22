@@ -7,6 +7,8 @@ defineProps<{
   loading?: boolean
 }>()
 
+const { t } = useI18n()
+
 const open = defineModel<boolean>('open', { default: false })
 
 const emit = defineEmits<{
@@ -19,7 +21,7 @@ const emit = defineEmits<{
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton
-          label="Cancel"
+          :label="t('common.cancel')"
           color="neutral"
           variant="ghost"
           @click="open = false"

@@ -13,6 +13,7 @@ export interface ReferenceOption {
 export function useReferenceOptions(fields: MaybeRefOrGetter<DetailField[]>, language: MaybeRefOrGetter<string>) {
   /** Reference field key → the items it can point at. */
   const options = ref<Record<string, ReferenceOption[]>>({})
+  const { t } = useI18n()
 
   async function load() {
     for (const field of toValue(fields).filter(candidate => candidate.type === 'reference')) {
@@ -23,14 +24,14 @@ export function useReferenceOptions(fields: MaybeRefOrGetter<DetailField[]>, lan
         const items = await $fetch<ContentItem[]>(`/api/${field.reference}`, { headers: code ? inLanguage(code) : undefined })
 
         options.value[field.key] = [
-          { label: 'None', value: NO_REFERENCE },
+          { label: t('common.none'), value: NO_REFERENCE },
           ...items.map(item => ({
             label: String(item.name ?? (target ? item[target.identifier] : item.id)),
             value: item.id
           }))
         ]
       } catch {
-        options.value[field.key] = [{ label: 'None', value: NO_REFERENCE }]
+        options.value[field.key] = [{ label: t('common.none'), value: NO_REFERENCE }]
       }
     }
   }

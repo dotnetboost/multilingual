@@ -2,7 +2,8 @@ import type { FormError } from '@nuxt/ui'
 import type { ContentType, DetailField } from '~/types'
 
 /**
- * The content types the dashboard edits, one tab each.
+ * The content types the dashboard edits, one tab each. The labels and descriptions here are the
+ * English ones; `types.{route}` in a locale translates them (see `useI18n().localizeType`).
  *
  * Unlike the language endpoints, these endpoints belong to the application — here, the ones in
  * samples/SampleApp. Each entry says where the type lives and which of its properties are
@@ -77,15 +78,16 @@ export function storedValue(entry: Record<string, string | null> | undefined, ke
  * save a round trip for the obvious.
  */
 export function validateDetails(fields: DetailField[], values: Record<string, unknown>): FormError[] {
+  const { t } = useI18n()
   const errors: FormError[] = []
 
   for (const field of fields.filter(candidate => candidate.type === 'text')) {
     const value = String(values[field.key] ?? '').trim()
 
     if (field.required && !value) {
-      errors.push({ name: field.key, message: 'Required.' })
+      errors.push({ name: field.key, message: t('common.required') })
     } else if (field.maxLength && value.length > field.maxLength) {
-      errors.push({ name: field.key, message: `At most ${field.maxLength} characters.` })
+      errors.push({ name: field.key, message: t('common.maxLength', { max: field.maxLength }) })
     }
   }
 

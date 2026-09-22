@@ -19,6 +19,23 @@ Against an API you run yourself, start the dashboard on its own; it is then at
 npm install --prefix clients/dashboard && npm run dev --prefix clients/dashboard
 ```
 
+## Dashboard language
+
+The picker in the header of every page chooses one language for the whole dashboard. It lists the
+API's active languages (the bundled ones below until they load, or when the API is unreachable) and
+is remembered in the browser. The choice sets:
+
+- **The text.** Menus, labels, buttons, toasts and confirmations come from `app/locales` — English,
+  Arabic and French are bundled. A language without a file there shows English text.
+- **The direction.** `<html dir>` follows the language's own direction as the API reports it, so an
+  `rtl` language such as Arabic flips the whole layout.
+- **The content language.** The Content lists are read in it, and every API call that does not pick
+  a language itself carries it as `Accept-Language`, so the API's own messages match.
+
+Adding a language to the dashboard's text is one file with the shape of `app/locales/en.ts`, listed in
+`app/locales/index.ts` with Nuxt UI's locale for it. Content types are translated under
+`types.{route}`.
+
 ## Languages
 
 A table over `MapLanguageEndpoints()`: add a language (its direction derived from the code unless
@@ -31,8 +48,8 @@ works against any application that maps the endpoints.
 ## Content
 
 One tab per `[MultiLingual]` entity of [`samples/SampleApp`](../samples/SampleApp) — Products
-(property-level attribute) and Categories (class-level). The list is read with the language picked
-in its toolbar as `Accept-Language`, so it is exactly what a client in that language receives,
+(property-level attribute) and Categories (class-level). The list is read with the dashboard's language
+(picked in the header) as `Accept-Language`, so it is exactly what a client in that language receives,
 fallbacks included; a badge per language shows which ones each item is actually translated into.
 
 **New product** and **New category** create an item: its untranslated properties, and its

@@ -3,10 +3,13 @@ import type { ContentItem } from '~/types'
 
 const { apiReferenceUrl, baseLanguage } = useRuntimeConfig().public
 const { languages, active, defaultLanguage, pending: languagesPending, loadError, load: loadLanguages, find } = useLanguages()
+const { t, localizeType } = useI18n()
 
+/** A content type's endpoint: how many items it returned, or why it failed. */
 interface TypeStatus {
   online: boolean
-  summary: string
+  count?: number
+  error?: string
 }
 
 const status = reactive<Record<string, TypeStatus>>({})
@@ -21,12 +24,9 @@ async function probe() {
       try {
         const items = await $fetch<ContentItem[]>(`/api/${type.route}`)
 
-        status[type.route] = {
-          online: true,
-          summary: `${items.length} ${items.length === 1 ? 'item' : 'items'}`
-        }
+        status[type.route] = { online: true, count: items.length }
       } catch (error) {
-        status[type.route] = { online: false, summary: problemMessage(error) }
+        status[type.route] = { online: false, error: problemMessage(error) }
       }
     })
   ])
@@ -37,25 +37,30 @@ async function probe() {
 const loading = computed(() => probing.value || languagesPending.value)
 const reachable = computed(() => !loadError.value && contentTypes.every(type => status[type.route]?.online))
 
+function summary(route: string) {
+  const entry = status[route]
+  return entry?.online ? t('overview.items', { count: entry.count }) : entry?.error
+}
+
 const stats = computed(() => [{
-  title: 'Languages',
+  title: t('overview.stats.languages'),
   icon: 'i-lucide-languages',
-  value: `${active.value.length} active`,
-  detail: `${languages.value.length} in total`,
+  value: t('overview.stats.activeCount', { count: active.value.length }),
+  detail: t('overview.stats.totalCount', { count: languages.value.length }),
   to: '/languages'
 }, {
-  title: 'Default language',
+  title: t('overview.stats.defaultLanguage'),
   icon: 'i-lucide-star',
   value: defaultLanguage.value?.name ?? '—',
-  detail: defaultLanguage.value ? `${defaultLanguage.value.code} — reads fall back to it` : 'None configured',
+  detail: defaultLanguage.value ? t('overview.stats.defaultDetail', { code: defaultLanguage.value.code }) : t('overview.stats.noneConfigured'),
   to: '/languages'
 }, {
-  title: 'Storage mode',
+  title: t('overview.stats.storageMode'),
   icon: 'i-lucide-database',
-  value: baseLanguage ? `Base language: ${find(baseLanguage)?.name ?? baseLanguage}` : 'Translations table',
+  value: baseLanguage ? t('overview.stats.baseLanguage', { name: find(baseLanguage)?.name ?? baseLanguage }) : t('overview.stats.translationsTable'),
   detail: baseLanguage
-    ? `${baseLanguage} lives in each entity's own columns; every other language in Translations`
-    : 'Every language lives in the shared Translations table',
+    ? t('overview.stats.baseDetail', { code: baseLanguage })
+    : t('overview.stats.tableDetail'),
   to: undefined
 }])
 
@@ -65,7 +70,7 @@ onMounted(probe)
 <template>
   <UDashboardPanel id="home">
     <template #header>
-      <UDashboardNavbar title="Overview" :ui="{ right: 'gap-3' }">
+      <UDashboardNavbar :title="t('nav.overview')" :ui="{ right: 'gap-3' }">
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>
@@ -75,7 +80,8 @@ onMounted(probe)
             :color="loading ? 'neutral' : reachable ? 'success' : 'error'"
             variant="subtle"
             :icon="loading ? 'i-lucide-loader-circle' : reachable ? 'i-lucide-plug' : 'i-lucide-plug-zap'"
-            :label="loading ? 'Connecting…' : reachable ? 'API connected' : 'API unreachable'"
+            :label="loading ? t('overview.connecting') : reachable ? t('overview.connected') : t('overview.unreachable')"
+            class="hidden sm:inline-flex"
           />
 
           <UButton
@@ -83,22 +89,24 @@ onMounted(probe)
             color="neutral"
             variant="ghost"
             :loading="loading"
-            aria-label="Refresh"
+            :aria-label="t('common.refresh')"
             @click="probe"
           />
+
+          <LanguageSelect />
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
       <UPageCard
-        title="Content in every language, from one attribute"
-        description="This dashboard manages the languages that DotNetBoost.MultiLingual.API maps with MapLanguageEndpoints(), and edits the [MultiLingual] properties of the sample's entities one language at a time — each write goes out with that language in Accept-Language."
+        :title="t('overview.introTitle')"
+        :description="t('overview.introDescription')"
         variant="naked"
         class="mb-2"
       >
         <UButton
-          label="Open API reference"
+          :label="t('overview.openApiReference')"
           icon="i-lucide-book-open"
           color="neutral"
           variant="outline"
@@ -113,7 +121,7 @@ onMounted(probe)
         color="error"
         variant="subtle"
         icon="i-lucide-plug-zap"
-        title="Could not load the languages"
+        :title="t('languages.loadError')"
         :description="loadError"
       />
 
@@ -141,7 +149,7 @@ onMounted(probe)
       </UPageGrid>
 
       <div v-if="active.length" class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-muted">Served in</span>
+        <span class="text-sm text-muted">{{ t('overview.servedIn') }}</span>
         <UBadge
           v-for="language in active"
           :key="language.code"
@@ -155,7 +163,7 @@ onMounted(probe)
 
       <UPageGrid class="lg:grid-cols-2">
         <UPageCard
-          v-for="type in contentTypes"
+          v-for="type in contentTypes.map(localizeType)"
           :key="type.route"
           :title="type.label"
           :description="type.description"
@@ -178,7 +186,7 @@ onMounted(probe)
                 v-else
                 :color="status[type.route]?.online ? 'success' : 'error'"
                 variant="subtle"
-                :label="status[type.route]?.summary"
+                :label="summary(type.route)"
               />
             </div>
           </template>

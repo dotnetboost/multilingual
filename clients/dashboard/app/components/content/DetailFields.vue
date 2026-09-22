@@ -19,6 +19,8 @@ const props = defineProps<{
   stored?: Record<string, any>
 }>()
 
+const { t } = useI18n()
+
 function referenceItems(field: DetailField) {
   const items = props.options[field.key] ?? []
   const locked = props.stored && !field.unsettable && props.stored[field.key] !== NO_REFERENCE
@@ -30,7 +32,7 @@ function referenceItems(field: DetailField) {
 
 function hint(field: DetailField) {
   return field.type === 'reference' && props.stored && !field.unsettable && props.stored[field.key] !== NO_REFERENCE
-    ? 'Can be changed, not removed'
+    ? t('editor.referenceLocked')
     : undefined
 }
 </script>

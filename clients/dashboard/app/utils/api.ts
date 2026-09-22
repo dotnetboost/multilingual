@@ -30,7 +30,7 @@ export function problemMessage(error: unknown): string {
     }
   }
 
-  return (error as Error)?.message || 'The API could not be reached.'
+  return (error as Error)?.message || useI18n().t('common.apiUnreachable')
 }
 
 /** Headers that make a request read or write `language`. */

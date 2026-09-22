@@ -3,18 +3,20 @@ import type { TableColumn } from '@nuxt/ui'
 import type { ContentItem, ContentTranslations, ContentType } from '~/types'
 
 /**
- * Lists one content type, read in a language of the user's choosing — the list is exactly what a
- * client sending that `Accept-Language` receives — and shows which languages each item is
- * actually translated into. Selecting a row opens the editor.
+ * Lists one content type, read in the dashboard's language — picked in the header, so the list is
+ * exactly what a client sending that `Accept-Language` receives — and shows which languages each
+ * item is actually translated into. Selecting a row opens the editor.
  */
 const props = defineProps<{
   type: ContentType
 }>()
 
 const toast = useToast()
-const { active, defaultLanguage, isBase, ensureLoaded, loadError: languagesError } = useLanguages()
+const { active, isBase, ensureLoaded, loadError: languagesError } = useLanguages()
+const { code: readIn, dir, t, tType, localizeType } = useI18n()
 
-const readIn = ref('')
+/** The type's labels in the dashboard's language. */
+const text = computed(() => localizeType(props.type))
 const items = ref<ContentItem[]>([])
 /** Item id → codes of the languages it has something stored in. */
 const coverage = ref<Record<number, string[]>>({})
@@ -29,11 +31,6 @@ const removing = ref(false)
 /** The language the API actually answered in — not necessarily the one asked for. */
 const resolved = computed(() => items.value[0]?.language)
 
-const languageItems = computed(() => active.value.map(language => ({
-  label: `${language.name} (${language.code})`,
-  value: language.code
-})))
-
 async function load() {
   pending.value = true
   loadError.value = ''
@@ -43,8 +40,6 @@ async function load() {
     if (languagesError.value) {
       throw new Error(languagesError.value)
     }
-
-    readIn.value ||= defaultLanguage.value?.code ?? ''
 
     items.value = await $fetch<ContentItem[]>(`/api/${props.type.route}`, {
       headers: readIn.value ? inLanguage(readIn.value) : undefined
@@ -72,9 +67,12 @@ function covered(id: number, code: string) {
 
 const columns = computed<TableColumn<ContentItem>[]>(() => [
   { accessorKey: 'id', header: '#' },
-  { accessorKey: props.type.identifier, header: humanizeKey(props.type.identifier) },
-  ...props.type.fields.map(field => ({ accessorKey: field.key, header: field.label })),
-  { id: 'coverage', header: 'Translated into' },
+  {
+    accessorKey: props.type.identifier,
+    header: text.value.details.find(field => field.key === props.type.identifier)?.label ?? humanizeKey(props.type.identifier)
+  },
+  ...text.value.fields.map(field => ({ accessorKey: field.key, header: field.label })),
+  { id: 'coverage', header: t('content.translatedInto') },
   { id: 'actions', header: '' }
 ])
 
@@ -95,7 +93,7 @@ async function onDelete() {
   try {
     const result = await $fetch<{ message?: string }>(`/api/${props.type.route}/${item.id}`, { method: 'DELETE' })
 
-    toast.add({ title: `${props.type.name} deleted`, description: result.message, icon: 'i-lucide-trash-2', color: 'success' })
+    toast.add({ title: tType(props.type, 'deleted'), description: result.message, icon: 'i-lucide-trash-2', color: 'success' })
 
     if (selected.value === item.id) {
       selected.value = null
@@ -103,7 +101,7 @@ async function onDelete() {
     deleting.value = null
     await load()
   } catch (error) {
-    toast.add({ title: 'Delete failed', description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
+    toast.add({ title: t('content.deleteFailed'), description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
   } finally {
     removing.value = false
   }
@@ -115,11 +113,8 @@ async function onCreated(id: number) {
   selected.value = id
 }
 
-watch(readIn, (next, previous) => {
-  if (previous) {
-    load()
-  }
-})
+// Picking another language in the header reads the list again, in it.
+watch(readIn, load)
 
 onMounted(load)
 </script>
@@ -127,30 +122,23 @@ onMounted(load)
 <template>
   <div class="flex flex-col gap-4">
     <UPageCard
-      :title="type.label"
-      :description="type.description"
+      :title="text.label"
+      :description="text.description"
       variant="naked"
       orientation="horizontal"
     >
       <div class="flex items-center gap-2 lg:ms-auto">
-        <USelect
-          v-model="readIn"
-          :items="languageItems"
-          icon="i-lucide-languages"
-          class="w-52"
-          aria-label="Read in"
-        />
         <UButton
           icon="i-lucide-refresh-cw"
           color="neutral"
           variant="ghost"
           :loading="pending"
-          aria-label="Refresh"
+          :aria-label="t('common.refresh')"
           @click="load"
         />
         <UButton
           icon="i-lucide-plus"
-          :label="`New ${type.name.toLowerCase()}`"
+          :label="tType(type, 'new')"
           @click="creating = true"
         />
       </div>
@@ -161,9 +149,9 @@ onMounted(load)
       color="error"
       variant="subtle"
       icon="i-lucide-plug-zap"
-      :title="`Could not load ${type.label.toLowerCase()}`"
+      :title="tType(type, 'loadError')"
       :description="loadError"
-      :actions="[{ label: 'Try again', color: 'neutral', variant: 'outline', onClick: load }]"
+      :actions="[{ label: t('common.tryAgain'), color: 'neutral', variant: 'outline', onClick: load }]"
     />
 
     <div v-else class="flex flex-wrap items-center gap-2 text-sm text-muted">
@@ -180,17 +168,17 @@ onMounted(load)
         :label="`Accept-Language: ${readIn}`"
       />
       <template v-if="resolved && resolved !== readIn">
-        <UIcon name="i-lucide-arrow-right" />
-        <span>resolved to <span class="font-mono">{{ resolved }}</span></span>
+        <UIcon name="i-lucide-arrow-right" class="rtl:rotate-180" />
+        <span>{{ t('content.resolvedTo') }} <span class="font-mono">{{ resolved }}</span></span>
       </template>
-      <span class="ms-auto">Select a row to edit it.</span>
+      <span class="ms-auto">{{ t('content.selectRow') }}</span>
     </div>
 
     <UTable
       :data="items"
       :columns="columns"
       :loading="pending"
-      :empty="`No ${type.label.toLowerCase()} yet.`"
+      :empty="tType(type, 'empty')"
       class="rounded-lg border border-default"
       :ui="{ tr: 'cursor-pointer', td: 'align-top' }"
       @select="(_, row) => selected = row.original.id"
@@ -210,7 +198,7 @@ onMounted(load)
           <UTooltip
             v-for="language in active"
             :key="language.code"
-            :text="covered(row.original.id, language.code) ? `${language.name}: stored` : `${language.name}: falls back`"
+            :text="t(covered(row.original.id, language.code) ? 'content.coverageStored' : 'content.coverageFallsBack', { name: language.name })"
           >
             <UBadge
               :color="covered(row.original.id, language.code) ? 'success' : 'neutral'"
@@ -229,7 +217,7 @@ onMounted(load)
             icon="i-lucide-trash-2"
             color="neutral"
             variant="ghost"
-            :aria-label="`Delete ${row.original[type.identifier]}`"
+            :aria-label="t('content.deleteAria', { id: String(row.original[type.identifier]) })"
             @click.stop="deleting = row.original"
           />
         </div>
@@ -240,9 +228,9 @@ onMounted(load)
 
     <ConfirmModal
       :open="deleting !== null"
-      :title="`Delete ${type.name.toLowerCase()} ${deleting?.[type.identifier] ?? ''}?`"
-      :description="['It is removed in every language, with all of its translations.', type.deleteNote].filter(Boolean).join(' ')"
-      :confirm-label="`Delete ${type.name.toLowerCase()}`"
+      :title="tType(type, 'deleteTitle', { id: String(deleting?.[type.identifier] ?? '') })"
+      :description="[t('content.deleteDescription'), text.deleteNote].filter(Boolean).join(' ')"
+      :confirm-label="tType(type, 'deleteLabel')"
       :loading="removing"
       @update:open="!$event && (deleting = null)"
       @confirm="onDelete"
@@ -250,8 +238,9 @@ onMounted(load)
 
     <USlideover
       :open="selected !== null"
-      :title="selectedItem ? `${type.name} ${selectedItem[type.identifier]}` : type.name"
-      :description="`Edited one language at a time: PUT api/${type.route}/${selected} with that language in Accept-Language.`"
+      :title="selectedItem ? tType(type, 'itemTitle', { id: String(selectedItem[type.identifier]) }) : text.name"
+      :description="t('content.editorDescription', { route: type.route, id: selected ?? '' })"
+      :side="dir === 'rtl' ? 'left' : 'right'"
       :ui="{ content: 'sm:max-w-xl' }"
       @update:open="!$event && (selected = null)"
     >

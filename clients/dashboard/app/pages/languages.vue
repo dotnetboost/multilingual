@@ -3,6 +3,7 @@ import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import type { Language } from '~/types'
 
 const { languages, pending, loadError, busy, load, isBase, update, setDefault, remove, purge } = useLanguages()
+const { t } = useI18n()
 
 const formOpen = ref(false)
 const editing = ref<Language>()
@@ -10,14 +11,14 @@ const editing = ref<Language>()
 /** The destructive action awaiting confirmation. */
 const confirming = ref<{ kind: 'delete' | 'purge', language: Language } | null>(null)
 
-const columns: TableColumn<Language>[] = [
-  { accessorKey: 'code', header: 'Code' },
-  { accessorKey: 'name', header: 'Name' },
-  { accessorKey: 'direction', header: 'Direction' },
-  { id: 'role', header: 'Role' },
-  { accessorKey: 'isActive', header: 'Active' },
+const columns = computed<TableColumn<Language>[]>(() => [
+  { accessorKey: 'code', header: t('languages.columns.code') },
+  { accessorKey: 'name', header: t('languages.columns.name') },
+  { accessorKey: 'direction', header: t('languages.columns.direction') },
+  { id: 'role', header: t('languages.columns.role') },
+  { accessorKey: 'isActive', header: t('languages.columns.active') },
   { id: 'actions', header: '' }
-]
+])
 
 function add() {
   editing.value = undefined
@@ -36,21 +37,21 @@ function toggleActive(language: Language, isActive: boolean) {
 
 function actions(language: Language): DropdownMenuItem[][] {
   return [[{
-    label: 'Edit',
+    label: t('languages.actions.edit'),
     icon: 'i-lucide-pencil',
     onSelect: () => edit(language)
   }, {
-    label: 'Make default',
+    label: t('languages.actions.makeDefault'),
     icon: 'i-lucide-star',
     disabled: language.isDefault || !language.isActive,
     onSelect: () => setDefault(language.code)
   }], [{
-    label: 'Delete all translations',
+    label: t('languages.actions.purge'),
     icon: 'i-lucide-eraser',
     color: 'error',
     onSelect: () => confirming.value = { kind: 'purge', language }
   }, {
-    label: 'Delete language',
+    label: t('languages.actions.delete'),
     icon: 'i-lucide-trash-2',
     color: 'error',
     disabled: language.isDefault,
@@ -66,15 +67,17 @@ const confirmation = computed(() => {
 
   return target.kind === 'purge'
     ? {
-        title: `Delete every ${target.language.name} translation?`,
-        description: `Removes every translation written in ${target.language.code}, across all entities. Reads in it then fall back to the default language. The language itself stays.`
-          + (isBase(target.language.code) ? ' It is the base language, so its values are columns and are not affected.' : ''),
-        label: 'Delete translations'
+        title: t('languages.confirmPurge.title', { name: target.language.name }),
+        description: [
+          t('languages.confirmPurge.description', { code: target.language.code }),
+          isBase(target.language.code) ? t('languages.confirmPurge.baseNote') : ''
+        ].filter(Boolean).join(' '),
+        label: t('languages.confirmPurge.label')
       }
     : {
-        title: `Delete ${target.language.name}?`,
-        description: 'The API refuses while translations in it exist — delete those first, or deactivate the language to keep them.',
-        label: 'Delete language'
+        title: t('languages.confirmDelete.title', { name: target.language.name }),
+        description: t('languages.confirmDelete.description'),
+        label: t('languages.confirmDelete.label')
       }
 })
 
@@ -94,7 +97,7 @@ onMounted(load)
 <template>
   <UDashboardPanel id="languages">
     <template #header>
-      <UDashboardNavbar title="Languages" :ui="{ right: 'gap-3' }">
+      <UDashboardNavbar :title="t('nav.languages')" :ui="{ right: 'gap-3' }">
         <template #leading>
           <UDashboardSidebarCollapse />
         </template>
@@ -105,18 +108,19 @@ onMounted(load)
             color="neutral"
             variant="ghost"
             :loading="pending"
-            aria-label="Refresh"
+            :aria-label="t('common.refresh')"
             @click="load"
           />
-          <UButton icon="i-lucide-plus" label="Add language" @click="add" />
+          <UButton icon="i-lucide-plus" :label="t('languages.add')" @click="add" />
+          <LanguageSelect />
         </template>
       </UDashboardNavbar>
     </template>
 
     <template #body>
       <UPageCard
-        title="Languages content is served in"
-        description="Exactly one is the default: reads fall back to it when the requested language has no translation. The code is a language's identity and never changes; its content is kept while it is inactive."
+        :title="t('languages.cardTitle')"
+        :description="t('languages.cardDescription')"
         variant="naked"
       >
         <UBadge
@@ -132,9 +136,9 @@ onMounted(load)
         color="error"
         variant="subtle"
         icon="i-lucide-plug-zap"
-        title="Could not load the languages"
+        :title="t('languages.loadError')"
         :description="loadError"
-        :actions="[{ label: 'Try again', color: 'neutral', variant: 'outline', onClick: load }]"
+        :actions="[{ label: t('common.tryAgain'), color: 'neutral', variant: 'outline', onClick: load }]"
       />
 
       <UTable
@@ -142,7 +146,7 @@ onMounted(load)
         :data="languages"
         :columns="columns"
         :loading="pending && !languages.length"
-        empty="No languages yet. The first one added becomes the default."
+        :empty="t('languages.empty')"
         class="rounded-lg border border-default"
       >
         <template #code-cell="{ row }">
@@ -170,14 +174,14 @@ onMounted(load)
               color="primary"
               variant="subtle"
               icon="i-lucide-star"
-              label="default"
+              :label="t('languages.roles.default')"
             />
-            <UTooltip v-if="isBase(row.original.code)" text="MultiLingualOptions.BaseLanguage: stored in each entity's own columns">
+            <UTooltip v-if="isBase(row.original.code)" :text="t('languages.baseTooltip')">
               <UBadge
                 color="info"
                 variant="subtle"
                 icon="i-lucide-database"
-                label="base"
+                :label="t('languages.roles.base')"
               />
             </UTooltip>
           </div>
@@ -188,7 +192,7 @@ onMounted(load)
             :model-value="row.original.isActive"
             :loading="busy === row.original.code"
             :disabled="busy !== null"
-            :aria-label="`${row.original.isActive ? 'Deactivate' : 'Activate'} ${row.original.name}`"
+            :aria-label="t(row.original.isActive ? 'languages.deactivate' : 'languages.activate', { name: row.original.name })"
             @update:model-value="toggleActive(row.original, $event)"
           />
         </template>
@@ -200,7 +204,7 @@ onMounted(load)
                 icon="i-lucide-ellipsis-vertical"
                 color="neutral"
                 variant="ghost"
-                :aria-label="`Actions for ${row.original.name}`"
+                :aria-label="t('languages.actionsFor', { name: row.original.name })"
               />
             </UDropdownMenu>
           </div>

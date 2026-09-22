@@ -2,6 +2,8 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const { apiReferenceUrl } = useRuntimeConfig().public
+const { t, localizeType } = useI18n()
+const { ensureLoaded } = useLanguages()
 
 // Registers the `g-h` / `g-l` / `g-c` navigation shortcuts.
 useDashboard()
@@ -12,46 +14,49 @@ const close = () => {
   open.value = false
 }
 
-const links = [[{
-  label: 'Overview',
+const links = computed(() => [[{
+  label: t('nav.overview'),
   icon: 'i-lucide-house',
   to: '/',
   onSelect: close
 }, {
-  label: 'Languages',
+  label: t('nav.languages'),
   icon: 'i-lucide-languages',
   to: '/languages',
   onSelect: close
 }, {
-  label: 'Content',
+  label: t('nav.content'),
   icon: 'i-lucide-files',
   to: '/content',
   defaultOpen: true,
   type: 'trigger',
   // One child per content type, mirroring the top menu on the Content page.
   children: contentTypes.map(type => ({
-    label: type.label,
+    label: localizeType(type).label,
     to: type.to,
     exact: type.to === '/content',
     onSelect: close
   }))
 }], [{
-  label: 'API reference',
+  label: t('nav.apiReference'),
   icon: 'i-lucide-book-open',
   to: apiReferenceUrl,
   target: '_blank'
 }, {
-  label: 'Documentation',
+  label: t('nav.documentation'),
   icon: 'i-simple-icons-github',
   to: 'https://github.com/dotnetboost/multilingual',
   target: '_blank'
-}]] satisfies NavigationMenuItem[][]
+}]] satisfies NavigationMenuItem[][])
 
 const groups = computed(() => [{
   id: 'links',
-  label: 'Go to',
-  items: links.flat()
+  label: t('nav.goTo'),
+  items: links.value.flat()
 }])
+
+// The header's language picker lists the API's languages, whatever page is opened first.
+onMounted(ensureLoaded)
 </script>
 
 <template>

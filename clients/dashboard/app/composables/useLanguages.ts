@@ -12,6 +12,8 @@ import type { Language, LanguageUpdate, NewLanguage, PurgeResult } from '~/types
 const _useLanguages = () => {
   const toast = useToast()
   const { baseLanguage } = useRuntimeConfig().public
+  // Resolved at call time: useI18n reads this list, so it cannot be created during this setup.
+  const t: ReturnType<typeof useI18n>['t'] = (key, params) => useI18n().t(key, params)
 
   const languages = ref<Language[]>([])
   const pending = ref(false)
@@ -63,7 +65,7 @@ const _useLanguages = () => {
       return result
     } catch (error) {
       toast.add({
-        title: 'The API refused the change',
+        title: t('languages.toasts.refused'),
         description: problemMessage(error),
         icon: 'i-lucide-triangle-alert',
         color: 'error'
@@ -78,35 +80,35 @@ const _useLanguages = () => {
   const create = (input: NewLanguage) => run(input.code, () =>
     $fetch<Language>('/api/languages', { method: 'POST', body: input }),
   created => ({
-    title: `${created.name} added`,
+    title: t('languages.toasts.added', { name: created.name }),
     description: created.isDefault
-      ? `${created.code} is the default language.`
-      : `Content can now be written in ${created.code}.`
+      ? t('languages.toasts.addedDefault', { code: created.code })
+      : t('languages.toasts.addedWritable', { code: created.code })
   }))
 
   const update = (code: string, input: LanguageUpdate) => run(code, () =>
     $fetch<Language>(`/api/languages/${code}`, { method: 'PUT', body: input }),
   updated => ({
-    title: `${updated.name} saved`,
-    description: updated.isActive ? undefined : 'Inactive: its content is kept, but never served.'
+    title: t('languages.toasts.saved', { name: updated.name }),
+    description: updated.isActive ? undefined : t('languages.toasts.inactive')
   }))
 
   const setDefault = (code: string) => run(code, () =>
     $fetch<Language>(`/api/languages/${code}/set-default`, { method: 'POST' }),
   promoted => ({
-    title: `${promoted.name} is now the default`,
-    description: 'Reads without a translation in the requested language fall back to it.'
+    title: t('languages.toasts.promoted', { name: promoted.name }),
+    description: t('languages.toasts.promotedDescription')
   }))
 
   const remove = (code: string) => run(code, () =>
     $fetch(`/api/languages/${code}`, { method: 'DELETE' }),
-  () => ({ title: `${code} deleted` }))
+  () => ({ title: t('languages.toasts.deleted', { code }) }))
 
   const purge = (code: string) => run(code, () =>
     $fetch<PurgeResult>(`/api/languages/${code}/translations`, { method: 'DELETE' }),
   result => ({
-    title: `${result.deletedTranslations} ${result.deletedTranslations === 1 ? 'translation' : 'translations'} deleted`,
-    description: `Reads in ${result.code} now fall back until it is written again.`
+    title: t('languages.toasts.purged', { count: result.deletedTranslations }),
+    description: t('languages.toasts.purgedDescription', { code: result.code })
   }))
 
   return {

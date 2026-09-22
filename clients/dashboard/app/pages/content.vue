@@ -2,31 +2,36 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const { apiReferenceUrl } = useRuntimeConfig().public
+const { t, localizeType } = useI18n()
 
 // One top-menu entry per content type. Adding a type to `contentTypes` (and a page under
 // `pages/content/`) is all it takes to get another tab.
-const links = [
+const links = computed(() => [
   contentTypes.map(type => ({
-    label: type.label,
+    label: localizeType(type).label,
     icon: type.icon,
     to: type.to,
     exact: type.to === '/content'
   })),
   [{
-    label: 'API reference',
+    label: t('nav.apiReference'),
     icon: 'i-lucide-book-open',
     to: apiReferenceUrl,
     target: '_blank'
   }]
-] satisfies NavigationMenuItem[][]
+] satisfies NavigationMenuItem[][])
 </script>
 
 <template>
   <UDashboardPanel id="content">
     <template #header>
-      <UDashboardNavbar title="Content">
+      <UDashboardNavbar :title="t('nav.content')">
         <template #leading>
           <UDashboardSidebarCollapse />
+        </template>
+
+        <template #right>
+          <LanguageSelect />
         </template>
       </UDashboardNavbar>
 

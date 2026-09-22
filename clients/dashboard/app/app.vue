@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const colorMode = useColorMode()
+const { code, dir, uiLocale, t } = useI18n()
 
 const color = computed(() => colorMode.value === 'dark' ? '#1b1718' : 'white')
 
@@ -12,13 +13,15 @@ useHead({
   link: [
     { rel: 'icon', href: '/favicon.ico' }
   ],
+  // The dashboard's language sets the page's: an rtl language flips the whole layout.
   htmlAttrs: {
-    lang: 'en'
+    lang: code,
+    dir
   }
 })
 
-const title = 'DotNetBoost.MultiLingual — Dashboard'
-const description = 'Manage languages and translate content through the DotNetBoost.MultiLingual REST API.'
+const title = computed(() => t('app.title'))
+const description = computed(() => t('app.description'))
 
 useSeoMeta({
   title,
@@ -29,7 +32,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <UApp>
+  <UApp :locale="uiLocale">
     <NuxtLoadingIndicator />
 
     <NuxtLayout>
