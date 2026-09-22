@@ -5,7 +5,7 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 
 // The save under a retrying execution strategy. See the remarks on the class, in
 // MultiLingualSaveChangesInterceptor.cs, for why and what it changes.
-public sealed partial class MultiLingualSaveChangesInterceptor
+internal sealed partial class MultiLingualSaveChangesInterceptor
 {
     /// <summary>
     /// True when this save would open its own transaction under a strategy that refuses one. Inside

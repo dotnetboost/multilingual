@@ -22,7 +22,7 @@ namespace DotNetBoost.MultiLingual.Core.Services;
 /// <param name="timeProvider">The clock both are measured against.</param>
 /// <param name="signal">Optional; see the remarks.</param>
 /// <param name="logger">Optional; reports an unreachable <paramref name="signal"/>.</param>
-public sealed partial class LanguageCatalog(
+internal sealed partial class LanguageCatalog(
     IServiceScopeFactory scopeFactory,
     MultiLingualOptions options,
     TimeProvider timeProvider,

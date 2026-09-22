@@ -8,6 +8,11 @@
     </Description>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The interceptors, the hydrator and the materialized-entity registry are internals; the
+         provider tests exercise the registry's capacity directly. -->
+    <InternalsVisibleTo Include="DotNetBoost.MultiLingual.ProviderTests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />

@@ -14,7 +14,7 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// Types outside the model fall back to <see cref="ConventionEntityKeyAccessor"/>.
 /// </summary>
 /// <param name="context">The context whose model describes the entities.</param>
-public sealed class EfCoreEntityKeyAccessor(DbContext context) : IEntityKeyAccessor
+internal sealed class EfCoreEntityKeyAccessor(DbContext context) : IEntityKeyAccessor
 {
     private static readonly ConventionEntityKeyAccessor Fallback = new();
 

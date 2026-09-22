@@ -16,7 +16,7 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// follows would then see nothing to write.</para>
 /// </summary>
 /// <param name="logger">Reports the registry filling up.</param>
-public sealed partial class MaterializedEntityRegistry(ILogger<MaterializedEntityRegistry> logger)
+internal sealed partial class MaterializedEntityRegistry(ILogger<MaterializedEntityRegistry> logger)
 {
     private readonly List<Pending> _pending = [];
     private readonly HashSet<object> _seen = new(ReferenceEqualityComparer.Instance);

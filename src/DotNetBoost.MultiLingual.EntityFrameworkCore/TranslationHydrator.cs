@@ -19,7 +19,7 @@ public interface ITranslationHydrator
 /// <summary>Default <see cref="ITranslationHydrator"/>.</summary>
 /// <param name="registry">What the materialization interceptor recorded.</param>
 /// <param name="translations">The engine that does the hydrating.</param>
-public sealed class TranslationHydrator(MaterializedEntityRegistry registry, ITranslationManager translations)
+internal sealed class TranslationHydrator(MaterializedEntityRegistry registry, ITranslationManager translations)
     : ITranslationHydrator
 {
     /// <inheritdoc/>

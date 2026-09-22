@@ -12,7 +12,7 @@ namespace DotNetBoost.MultiLingual.Core.Services;
 /// <param name="options">The base language, among others.</param>
 /// <param name="signal">Optional; told about every write, so other instances reload too.</param>
 /// <param name="logger">Optional; reports a signal that could not be sent.</param>
-public sealed partial class LanguageManager(
+internal sealed partial class LanguageManager(
     ILanguageStore languages,
     ITranslationStore translations,
     ILanguageCatalog catalog,

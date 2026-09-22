@@ -4,7 +4,7 @@ using DotNetBoost.MultiLingual.Core.Models;
 namespace DotNetBoost.MultiLingual.Core.Services;
 
 /// <summary>Default, scoped <see cref="ILanguageContext"/>.</summary>
-public sealed class LanguageContext(ILanguageCatalog catalog) : ILanguageContext
+internal sealed class LanguageContext(ILanguageCatalog catalog) : ILanguageContext
 {
     private LanguageInfo? _current;
     private LanguageInfo? _default;

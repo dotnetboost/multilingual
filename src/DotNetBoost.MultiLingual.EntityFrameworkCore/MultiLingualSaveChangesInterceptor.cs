@@ -53,7 +53,7 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// options are built once, from the root provider, and cannot carry per-request services.</para>
 /// </summary>
 /// <param name="services">The scope's provider; the engine is resolved lazily, on first save.</param>
-public sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvider services) : SaveChangesInterceptor
+internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvider services) : SaveChangesInterceptor
 {
     private readonly ConditionalWeakTable<DbContext, SaveState> _states = new();
 

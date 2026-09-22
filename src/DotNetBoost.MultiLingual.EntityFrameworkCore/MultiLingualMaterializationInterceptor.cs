@@ -22,7 +22,7 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// <see cref="MaterializedEntityRegistry"/> through the context's application service provider
 /// — the scoped provider <c>AddDbContext</c> builds the options from.</para>
 /// </summary>
-public sealed class MultiLingualMaterializationInterceptor : IMaterializationInterceptor
+internal sealed class MultiLingualMaterializationInterceptor : IMaterializationInterceptor
 {
     /// <summary>The shared instance <see cref="MultiLingualDbContextOptionsExtensions.UseMultiLingual"/> attaches.</summary>
     public static MultiLingualMaterializationInterceptor Instance { get; } = new();

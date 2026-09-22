@@ -33,7 +33,7 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// treats query expression interceptors as singletons.
 /// </para>
 /// </summary>
-public sealed class MultiLingualQueryInterceptor : IQueryExpressionInterceptor
+internal sealed class MultiLingualQueryInterceptor : IQueryExpressionInterceptor
 {
     /// <summary>The shared instance <see cref="MultiLingualDbContextOptionsExtensions.UseMultiLingual"/> attaches.</summary>
     public static MultiLingualQueryInterceptor Instance { get; } = new();
