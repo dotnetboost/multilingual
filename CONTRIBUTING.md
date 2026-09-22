@@ -9,7 +9,8 @@ dotnetboost-multilingual/
 ├── src/                                          # Library projects (each ships as its own NuGet package)
 │   ├── DotNetBoost.MultiLingual.Core
 │   ├── DotNetBoost.MultiLingual.EntityFrameworkCore
-│   └── DotNetBoost.MultiLingual.API
+│   ├── DotNetBoost.MultiLingual.API
+│   └── DotNetBoost.MultiLingual.Localization
 ├── tests/
 │   ├── DotNetBoost.MultiLingual.UnitTests        # Core, over in-memory stores
 │   ├── DotNetBoost.MultiLingual.ProviderTests    # store contract suites + EF Core (SQLite) end to end
@@ -18,6 +19,8 @@ dotnetboost-multilingual/
 │   └── DotNetBoost.MultiLingual.TestSupport      # in-memory stores shared by the suites
 ├── samples/
 │   └── SampleApp                                 # Runnable ASP.NET Core demo (SQLite, Scalar)
+├── clients/
+│   └── dashboard                                 # Nuxt 4 dashboard for languages and content (SPA client)
 └── docs/                                         # Additional documentation
 ```
 

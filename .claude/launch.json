@@ -6,6 +6,12 @@
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "samples/SampleApp/SampleApp.csproj", "--launch-profile", "http"],
       "port": 5160
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "clients/dashboard"],
+      "port": 3000
     }
   ]
 }

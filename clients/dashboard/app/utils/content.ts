@@ -1,0 +1,64 @@
+import type { ContentType } from '~/types'
+
+/**
+ * The content types the dashboard edits, one tab each.
+ *
+ * Unlike the language endpoints, these endpoints belong to the application — here, the ones in
+ * samples/SampleApp. Each entry says where the type lives and which of its properties are
+ * `[MultiLingual]`. The dashboard assumes the shape the sample uses: `GET api/{route}` and
+ * `GET api/{route}/{id}` read in the `Accept-Language` language, `PUT api/{route}/{id}` writes the
+ * supplied fields in it, and `GET api/{route}/{id}/translations` returns every stored language.
+ */
+export const contentTypes: ContentType[] = [
+  {
+    route: 'products',
+    name: 'Product',
+    label: 'Products',
+    description: 'Property-level [MultiLingual]: Name and Description are translated, Sku and Price are ordinary columns.',
+    icon: 'i-lucide-package',
+    to: '/content',
+    identifier: 'sku',
+    fields: [
+      { key: 'name', label: 'Name' },
+      { key: 'description', label: 'Description', multiline: true }
+    ],
+    clearable: true
+  },
+  {
+    route: 'categories',
+    name: 'Category',
+    label: 'Categories',
+    description: 'Class-level [MultiLingual]: every string property is translated, except Slug, which opts out with [NotMultiLingual].',
+    icon: 'i-lucide-folder-tree',
+    to: '/content/categories',
+    identifier: 'slug',
+    fields: [
+      { key: 'name', label: 'Name' },
+      { key: 'description', label: 'Description', multiline: true }
+    ],
+    clearable: false
+  }
+]
+
+export function findContentType(route: string): ContentType | undefined {
+  return contentTypes.find(type => type.route === route)
+}
+
+/**
+ * The stored value of `key` in one language's entry of a translations response, whose property
+ * names are the C# ones. `undefined` when nothing is stored — reads then fall back.
+ */
+export function storedValue(entry: Record<string, string | null> | undefined, key: string) {
+  if (!entry) {
+    return undefined
+  }
+
+  const property = Object.keys(entry).find(name => name.toLowerCase() === key.toLowerCase())
+  return property === undefined ? undefined : entry[property]
+}
+
+/** `displayOrder` -> `Display Order`. Column header for untranslated properties. */
+export function humanizeKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}

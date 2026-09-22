@@ -113,6 +113,9 @@ client. `samples/SampleApp/SampleApp.http` walks every behaviour below, edge cas
 dotnet run --project samples/SampleApp    # http://localhost:5160
 ```
 
+To click through it instead, [`clients/dashboard`](clients/dashboard) is a Nuxt web UI for the
+language endpoints and the sample's content — see [docs/dashboard.md](docs/dashboard.md).
+
 ## How it works
 
 **Metadata.** `MultiLingualMetadata` works out, once per type, which properties are translatable.

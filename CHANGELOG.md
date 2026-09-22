@@ -97,6 +97,12 @@ keeps the versions its runtime ships.
   must pass; `ITranslationWriter` for the steps of a save; `IEntityKeyAccessor` for key discovery;
   `ILanguageChangeSignal` for other ways to share language changes. See `docs/adding-a-provider.md`.
 
+### Dashboard
+- A Nuxt 4 single-page client in `clients/dashboard`, built on the Nuxt UI dashboard template: a
+  Languages page over `MapLanguageEndpoints()`, and a Content page that lists the sample's entities
+  in any language and edits each one per language, side by side. Nitro proxies the API, so no CORS
+  setup is needed.
+
 ### Known limitations
 Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
 The README lists them all, with the reasons.
