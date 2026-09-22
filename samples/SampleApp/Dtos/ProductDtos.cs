@@ -52,6 +52,10 @@ public sealed record UpdateProductRequest
     public string? Description { get; init; }
 }
 
+/// <param name="Message">
+/// A human-readable confirmation in the request's language — set only by the endpoints that have
+/// something to say, and left out of the JSON everywhere else.
+/// </param>
 public sealed record ProductResponse(
     int Id,
     string Sku,
@@ -59,7 +63,8 @@ public sealed record ProductResponse(
     int? CategoryId,
     string? Name,
     string? Description,
-    string Language);
+    string Language,
+    string? Message = null);
 
 /// <summary>A product row as a list shows it, built by a single translated projection.</summary>
 public sealed record ProductSummaryResponse(

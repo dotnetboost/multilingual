@@ -3,6 +3,7 @@ using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Localization;
 using SampleApp.Data;
 using SampleApp.Domain;
 using SampleApp.Dtos;
@@ -24,7 +25,8 @@ public sealed class ProductsController(
     ITranslationManager translations,
     ILanguageCatalog languages,
     MultiLingualOptions options,
-    ILanguageContext language)
+    ILanguageContext language,
+    IStringLocalizer<SharedResource> localizer)
     : ControllerBase
 {
     /// <summary>
@@ -167,7 +169,10 @@ public sealed class ProductsController(
         // other than the base one, the interceptor refuses the create instead.
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(Get), new { id = product.Id }, ToResponse(product));
+        // The localizer answers in the request's language, from Resources/{language}.json.
+        var created = ToResponse(product) with { Message = localizer["Products.Created", product.Sku] };
+
+        return CreatedAtAction(nameof(Get), new { id = product.Id }, created);
     }
 
     /// <summary>
@@ -237,7 +242,7 @@ public sealed class ProductsController(
             .Where(p => p.Id == id)
             .FirstLocalizedOrDefaultAsync(hydrator, ct);
 
-        return Ok(ToResponse(saved!));
+        return Ok(ToResponse(saved!) with { Message = localizer["Products.Updated", saved!.Sku] });
     }
 
     /// <summary>

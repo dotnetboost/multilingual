@@ -9,6 +9,8 @@
     "UnexpectedDetail": "An unexpected error occurred while processing the request."
   },
   "Products": {
+    "Created": "Product {0} was created.",
+    "Updated": "Product {0} was updated.",
     "NotFound": "Product {0} was not found.",
     "SkuExists": "A product with SKU '{0}' already exists.",
     "UnknownSort": "Unknown sort '{0}'. Use 'id', 'name' or '-name'.",

@@ -160,7 +160,9 @@ Content-Type: application/json
   "name": "سماعة رأس لاسلكية"
 }
 
-### Create a product; Name/Description are stored as English, in the Products row itself
+### Create a product; Name/Description are stored as English, in the Products row itself.
+### The response carries a localized confirmation from Resources/en.json:
+###   "message": "Product HEADSET-02 was created."
 POST {{host}}/api/products
 Accept-Language: en
 Content-Type: application/json
@@ -174,7 +176,8 @@ Content-Type: application/json
 }
 
 ### Add Arabic to the same product — this one becomes a row in Translations, and the English
-### column is left exactly as it was
+### column is left exactly as it was. The confirmation comes from Resources/ar.json:
+###   "message": "تم تحديث المنتج HEADSET-02."
 PUT {{host}}/api/products/4
 Accept-Language: ar
 Content-Type: application/json
@@ -184,7 +187,7 @@ Content-Type: application/json
   "description": "سماعة رأس بعمر بطارية 30 ساعة."
 }
 
-### Add French
+### Add French — there is no fr.json, so the confirmation falls back to English
 PUT {{host}}/api/products/4
 Accept-Language: fr
 Content-Type: application/json
