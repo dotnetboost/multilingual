@@ -15,7 +15,11 @@
   </ItemGroup>
   <!-- IOpenApiOperationTransformer arrived with the built-in OpenAPI support in ASP.NET Core 9;
        the 8.x package has no equivalent, so the transformer ships for net10.0 only. -->
+  <!-- PrivateAssets="none": the package's source generator reaches an application that gets it
+       only through this one, and without the build targets that come with it, compiling any
+       AddOpenApi call fails with CS9137 ("the 'interceptors' feature is not enabled"). Letting
+       every asset flow gives the application the generator and its settings together. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" PrivateAssets="none" />
   </ItemGroup>
 </Project>
