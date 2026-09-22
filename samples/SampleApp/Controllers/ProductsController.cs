@@ -30,10 +30,10 @@ public sealed class ProductsController(
     /// (<c>Accept-Language</c>, then the system default).
     /// <para>
     /// <c>search</c> and <c>sort</c> work on the TRANSLATED name — the one this response shows —
-    /// in the database. A plain <c>Where(p =&gt; p.Name.Contains(…))</c> would only ever search
-    /// the English column; after <c>AsTranslated(db)</c> the same plain LINQ searches and sorts
-    /// the requested language, falling back exactly as the read does. The category filter stays
-    /// an ordinary indexed column filter.
+    /// in the database. This is plain EF Core: every query on the context is translated, so
+    /// <c>Where(p =&gt; p.Name.Contains(…))</c> and <c>OrderBy(p =&gt; p.Name)</c> use the requested
+    /// language, falling back exactly as the read does. The category filter stays an ordinary
+    /// indexed column filter.
     /// </para>
     /// </summary>
     /// <param name="categoryId">Only products in this category.</param>
@@ -49,7 +49,7 @@ public sealed class ProductsController(
         [FromQuery] string? sort,
         CancellationToken ct)
     {
-        var query = db.Products.AsNoTracking().AsTranslated(db);
+        var query = db.Products.AsNoTracking();
 
         if (categoryId is not null)
         {
@@ -71,8 +71,9 @@ public sealed class ProductsController(
             _                  => throw new ValidationException("Products.UnknownSort", sort)
         };
 
-        // One query for the products, one for all their translations.
-        var products = await query.ToLocalizedListAsync(ct);
+        // One statement: the products, their translated names for the filter and the sort, and
+        // their translated values — Name and Description are filled in before this returns.
+        var products = await query.ToListAsync(ct);
 
         return Ok(products.Select(ToResponse).ToList());
     }
@@ -83,9 +84,9 @@ public sealed class ProductsController(
     /// <para>
     /// This is the projection shape most read endpoints use, and a plain <c>Select</c> cannot do
     /// it here: <c>p.Name</c> and <c>p.Category.Name</c> are English columns in this sample's
-    /// base-language mode, so it would answer every language in English. After
-    /// <c>AsTranslated(db)</c> each translatable property is read in the request's language
-    /// instead, navigations included.
+    /// base-language mode — but every query is translated, so each translatable property is read
+    /// in the request's language instead, navigations included. (<c>IgnoreTranslations()</c> would
+    /// read the English columns.)
     /// </para>
     /// </summary>
     [HttpGet("summaries")]
@@ -96,7 +97,7 @@ public sealed class ProductsController(
 
         var summaries = await db.Products
             .AsNoTracking()
-            .AsTranslated(db)
+            
             .OrderBy(p => p.Id)
             .Select(p => new ProductSummaryResponse(p.Id, p.Sku, p.Price, p.Name, p.Category!.Name, languageCode))
             .ToListAsync(ct);
@@ -112,7 +113,7 @@ public sealed class ProductsController(
         var product = await db.Products
             .AsNoTracking()
             .Where(p => p.Id == id)
-            .FirstLocalizedOrDefaultAsync(ct)
+            .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Products.NotFound", id);
 
         return Ok(ToResponse(product));
@@ -180,8 +181,9 @@ public sealed class ProductsController(
     /// (<c>Accept-Language</c>) only; other languages are untouched. With <c>en</c> that means the
     /// columns on <c>Products</c>; with any other language, a row in <c>Translations</c>.
     /// <para>
-    /// Every field is optional and a <c>null</c> means "leave it alone", which is why the entity
-    /// is loaded WITHOUT hydration and why only supplied values are assigned below.
+    /// Every field is optional and a <c>null</c> means "leave it alone", which is why only supplied
+    /// values are assigned below. The loaded entity reads in the request's language; a value
+    /// nobody assigns is recognised as read, not authored, and is never written back.
     /// </para>
     /// </summary>
     [HttpPut("{id:int}")]
@@ -221,8 +223,9 @@ public sealed class ProductsController(
 
         // Only what the request actually supplied. These are real columns in base-language mode,
         // so assigning null would erase the stored English rather than mean "not supplied" — and
-        // a property nobody assigns keeps the value the column was loaded with, which the engine
-        // recognises as borrowed and never files as a translation.
+        // a property nobody assigns keeps the value the query read, which the engine recognises
+        // as read rather than authored: it is neither filed as a translation nor written to the
+        // English column.
         if (request.Name is not null)
         {
             product.Name = request.Name;
@@ -240,7 +243,7 @@ public sealed class ProductsController(
         var saved = await db.Products
             .AsNoTracking()
             .Where(p => p.Id == id)
-            .FirstLocalizedOrDefaultAsync(ct);
+            .FirstOrDefaultAsync(ct);
 
         return Ok(ToResponse(saved!) with { Message = localizer["Products.Updated", saved!.Sku] });
     }

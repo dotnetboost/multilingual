@@ -8,8 +8,8 @@
     </Description>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The interceptors, the hydrator and the materialized-entity registry are internals; the
-         provider tests exercise the registry's capacity directly. -->
+    <!-- The interceptors and the query translation are internals; the provider tests reach the
+         engine behind them directly. -->
     <InternalsVisibleTo Include="DotNetBoost.MultiLingual.ProviderTests" />
   </ItemGroup>
   <ItemGroup>

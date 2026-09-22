@@ -22,7 +22,7 @@ All four target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL
 keeps the versions its runtime ships.
 
 ### One service for application code
-- `IMultiLingualManager` is the only service an application injects, in the spirit of
+- `IMultiLingualManager` is the only service an application injects besides the `DbContext`, in the spirit of
   DotNetBoost.Settings' `ISettingManager`: `CurrentLanguage` / `UseLanguageAsync`, `Languages` (find
   and administer), `For(entity)` (read every language, `Set`, `Clear`, and — without EF Core —
   `SaveAsync` / `DeleteAsync`), and `LocalizeAsync` for providers without a change tracker.
@@ -48,21 +48,23 @@ keeps the versions its runtime ships.
   and every other language lives in `Translations`, falling back to the column.
 
 ### Reading
-- `ToLocalizedListAsync` / `FirstLocalizedOrDefaultAsync` / `SingleLocalizedOrDefaultAsync` fill in
-  every translatable property — navigations included — in one extra query per entity type, in the
-  request's language, falling back to the default language (and in base-language mode to the column).
-- They take no hydrator and no `DbContext`: the materialization interceptor tells the running query
-  which context it read from. `db.Products.Where(…).ToLocalizedListAsync(ct)` is the whole call.
-- Synchronous versions (`ToLocalizedList`, …) that never block on asynchronous work.
+- Every query is translated, with EF Core's own methods: entities come back with their
+  translatable properties — and those of their included navigations — in the request's language,
+  falling back to the default language (and in base-language mode to the column), loaded by the
+  query's own SQL statement. `ToListAsync`, `First…` / `Single…`, `Find`, streaming, sync queries,
+  explicit loading, split queries and every kind of `Include` are covered.
+- A tracked entity a later query finds again is refreshed only where nobody has edited it since.
 
 ### Querying on translated text
-- `AsTranslated(db)`, then plain LINQ: every translatable property read in `Where`, `OrderBy` and
-  `Select` — through navigations and nested collections — is the request's language with its
-  fallback, in the database. Ordinary column filters are untouched and keep their indexes.
-- The language travels as SQL parameters (one per language; entity and property names are
-  literals), so EF's compiled-query cache is shared across languages without mixing them up.
-- In the default mode, a plain query that reads a translatable property is refused with an error
-  naming the property and `AsTranslated`, instead of silently returning `null`.
+- Plain LINQ: every read of a translatable property in `Where`, `OrderBy` and `Select` — through
+  navigations and nested collections, and in `Count`, `Any` or `ExecuteDelete` — is the value a read
+  would show, in the database. Ordinary column filters are untouched and keep their indexes.
+- `InLanguage("fr")` reads one query in another language; `IgnoreTranslations()` reads the stored
+  columns, and in the default mode refuses a query that reads a translatable property, instead of
+  silently returning `null`.
+- One compiled query serves every language: the SQL holds placeholders, filled in per execution
+  by a command interceptor. Entity and property names are literals, so there are no per-value
+  parameters.
 
 ### Writing
 - Assign the property and call `SaveChanges`: the value is stored for the request's language, and

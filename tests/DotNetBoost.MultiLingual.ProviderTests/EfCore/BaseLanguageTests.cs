@@ -79,13 +79,13 @@ internal sealed class BaseShop : IAsyncDisposable
     }
 
     /// <summary>
-    /// The raw <c>Products.Name</c> column. A plain query never hydrates — only
-    /// <c>ToLocalizedListAsync</c> and friends do — so this is what the table itself holds.
+    /// The raw <c>Products.Name</c> column. Every query is translated, so this one opts out — and
+    /// reads what the table itself holds.
     /// </summary>
     public async Task<string?> StoredColumnNameAsync(int productId)
     {
         await using var scope = Scope();
-        var product = await scope.Db.Products.AsNoTracking().SingleAsync(p => p.Id == productId);
+        var product = await scope.Db.Products.AsNoTracking().IgnoreTranslations().SingleAsync(p => p.Id == productId);
         return product.Name;
     }
 
@@ -248,7 +248,7 @@ public sealed class BaseLanguageTests
         var id = await shop.CreateProductAsync("LAPTOP", "Laptop");
 
         await using var scope = await shop.ScopeInAsync("en");
-        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+        var product = await scope.Db.Products.Where(p => p.Id == id).FirstOrDefaultAsync();
 
         Assert.Equal("Laptop", product!.Name);
     }
@@ -267,7 +267,7 @@ public sealed class BaseLanguageTests
         }
 
         await using var read = await shop.ScopeInAsync("ar");
-        var product = await read.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+        var product = await read.Db.Products.Where(p => p.Id == id).FirstOrDefaultAsync();
 
         Assert.Equal("حاسوب", product!.Name);
     }
@@ -279,7 +279,7 @@ public sealed class BaseLanguageTests
         var id = await shop.CreateProductAsync("LAPTOP", "Laptop", "Light");
 
         await using var scope = await shop.ScopeInAsync("fr");
-        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+        var product = await scope.Db.Products.Where(p => p.Id == id).FirstOrDefaultAsync();
 
         Assert.Equal("Laptop", product!.Name);
         Assert.Equal("Light", product.Description);
@@ -293,7 +293,7 @@ public sealed class BaseLanguageTests
 
         await using (var scope = await shop.ScopeInAsync("fr"))
         {
-            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+            var product = await scope.Db.Products.Where(p => p.Id == id).FirstOrDefaultAsync();
             Assert.Equal("Laptop", product!.Name);   // the base column, as a fallback
 
             product.Price = 20;                       // touch something else entirely
@@ -345,6 +345,37 @@ public sealed class BaseLanguageTests
     // ----------------------------------------------------------------- the default language moves, content does not
 
     [Fact]
+    public async Task AJob_ReadingInADefaultOtherThanTheBase_NeverWritesItIntoTheBaseColumn()
+    {
+        await using var shop = await BaseShop.StartAsync();
+        var id = await shop.CreateProductAsync("LAPTOP", "Laptop");
+
+        await using (var scope = await shop.ScopeInAsync("ar"))
+        {
+            (await scope.Db.Products.SingleAsync(p => p.Id == id)).Name = "حاسوب";
+            await scope.Db.SaveChangesAsync();
+        }
+
+        await using (var scope = shop.Scope())
+            await scope.Get<ILanguageManager>().SetDefaultAsync("ar");
+
+        // A background job: no language resolved, so it reads in the default — Arabic. It loads
+        // the product tracked (which fills Name with the Arabic text), changes only the price and
+        // saves.
+        await using (var job = shop.Scope())
+        {
+            var product = await job.Db.Products.SingleAsync(p => p.Id == id);
+            Assert.Equal("حاسوب", product.Name);
+
+            product.Price = 99;
+            await job.Db.SaveChangesAsync();
+        }
+
+        Assert.Equal("Laptop", await shop.StoredColumnNameAsync(id));
+        Assert.Equal("حاسوب", Assert.Single(await shop.StoredTranslationsAsync()).Value);
+    }
+
+    [Fact]
     public async Task ChangingTheDefaultLanguage_MovesNoStoredContent()
     {
         await using var shop = await BaseShop.StartAsync();
@@ -367,14 +398,14 @@ public sealed class BaseLanguageTests
         // English still reads English, even though Arabic is now the default.
         await using (var scope = await shop.ScopeInAsync("en"))
         {
-            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+            var product = await scope.Db.Products.Where(p => p.Id == id).FirstOrDefaultAsync();
             Assert.Equal("Laptop", product!.Name);
         }
 
         // French has no translation, so it takes the new default before the base column.
         await using (var scope = await shop.ScopeInAsync("fr"))
         {
-            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+            var product = await scope.Db.Products.Where(p => p.Id == id).FirstOrDefaultAsync();
             Assert.Equal("حاسوب", product!.Name);
         }
     }

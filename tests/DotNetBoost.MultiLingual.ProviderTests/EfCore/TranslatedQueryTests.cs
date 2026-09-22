@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DotNetBoost.MultiLingual.ProviderTests.EfCore;
 
-/// <summary>Plain LINQ over translated text with <c>AsTranslated</c>, run by the database.</summary>
+/// <summary>Plain EF Core LINQ over translated text — filters, sorting, projections, entities — run by the database.</summary>
 public sealed class TranslatedQueryTests
 {
     private static Dictionary<string, string?> Name(string value) => new() { ["Name"] = value };
@@ -41,7 +41,7 @@ public sealed class TranslatedQueryTests
         await SeedAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
-        var skus = await SkusAsync(scope.Db.Products.AsTranslated(scope.Db).Where(p => p.Name!.StartsWith("Po")));
+        var skus = await SkusAsync(scope.Db.Products.Where(p => p.Name!.StartsWith("Po")));
 
         Assert.Equal(["LAPTOP"], skus);
     }
@@ -54,10 +54,10 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         // MOUSE has no French name, so a read shows the English one — and a filter matches it.
-        Assert.Equal(["MOUSE"], await SkusAsync(scope.Db.Products.AsTranslated(scope.Db).Where(p => p.Name == "Mouse")));
+        Assert.Equal(["MOUSE"], await SkusAsync(scope.Db.Products.Where(p => p.Name == "Mouse")));
 
         // LAPTOP does have a French name, so its English one is not what a read shows.
-        Assert.Empty(await SkusAsync(scope.Db.Products.AsTranslated(scope.Db).Where(p => p.Name == "Laptop")));
+        Assert.Empty(await SkusAsync(scope.Db.Products.Where(p => p.Name == "Laptop")));
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public sealed class TranslatedQueryTests
         await SeedAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
-        Assert.Equal(["BARE"], await SkusAsync(scope.Db.Products.AsTranslated(scope.Db).Where(p => p.Name == null)));
+        Assert.Equal(["BARE"], await SkusAsync(scope.Db.Products.Where(p => p.Name == null)));
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class TranslatedQueryTests
         await SeedAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
-        var skus = await SkusAsync(scope.Db.Products.AsTranslated(scope.Db, languageCode: "EN").Where(p => p.Name == "Laptop"));
+        var skus = await SkusAsync(scope.Db.Products.InLanguage("EN").Where(p => p.Name == "Laptop"));
 
         Assert.Equal(["LAPTOP"], skus);
     }
@@ -89,7 +89,7 @@ public sealed class TranslatedQueryTests
         await SeedAsync(shop);
         await using var scope = shop.Scope();
 
-        Assert.Equal(["LAPTOP"], await SkusAsync(scope.Db.Products.AsTranslated(scope.Db).Where(p => p.Name == "Laptop")));
+        Assert.Equal(["LAPTOP"], await SkusAsync(scope.Db.Products.Where(p => p.Name == "Laptop")));
     }
 
     [Fact]
@@ -101,11 +101,11 @@ public sealed class TranslatedQueryTests
 
         var before = await SkusAsync(scope.Db.Products
             .Where(p => p.Sku != "KEYBOARD")
-            .AsTranslated(scope.Db)
+            
             .Where(p => p.Name!.StartsWith("Po") || p.Name.StartsWith("Cl")));
 
         var after = await SkusAsync(scope.Db.Products
-            .AsTranslated(scope.Db)
+            
             .Where(p => p.Name!.StartsWith("Po") || p.Name.StartsWith("Cl"))
             .Where(p => p.Sku != "KEYBOARD"));
 
@@ -124,7 +124,7 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         IQueryable<ShopProduct> WithNames(string? language = null) =>
-            scope.Db.Products.AsTranslated(scope.Db, language).Where(p => p.Name != null);
+            (language is null ? scope.Db.Products : scope.Db.Products.InLanguage(language)).Where(p => p.Name != null);
 
         // Clavier, Mouse (English fallback), Portable.
         Assert.Equal(["KEYBOARD", "MOUSE", "LAPTOP"], await SkusAsync(WithNames().OrderBy(p => p.Name)));
@@ -142,7 +142,7 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         var skus = await SkusAsync(scope.Db.Products
-            .AsTranslated(scope.Db)
+            
             .OrderBy(p => p.Price)                               // all equal
             .ThenByDescending(p => p.Name)
             .Where(p => p.Sku != "BARE"));
@@ -158,10 +158,10 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         var products = await scope.Db.Products.AsNoTracking()
-            .AsTranslated(scope.Db)
+            
             .Where(p => p.Name!.EndsWith("er") || p.Name.EndsWith("le"))
             .OrderBy(p => p.Name)
-            .ToLocalizedListAsync();
+            .ToListAsync();
 
         Assert.Equal(["Clavier", "Portable"], products.Select(p => p.Name));
     }
@@ -179,7 +179,7 @@ public sealed class TranslatedQueryTests
         }
 
         await using var scope = await shop.ScopeInAsync("ar");
-        var ids = await scope.Db.Documents.AsTranslated(scope.Db).Where(d => d.Title == "دليل").Select(d => d.Id).ToListAsync();
+        var ids = await scope.Db.Documents.Where(d => d.Title == "دليل").Select(d => d.Id).ToListAsync();
 
         Assert.Equal([id], ids);
     }
@@ -197,7 +197,7 @@ public sealed class TranslatedQueryTests
         async Task<List<string?>> NamesAsync(string language)
         {
             await using var scope = await shop.ScopeInAsync(language);
-            return await scope.Db.Products.AsTranslated(scope.Db)
+            return await scope.Db.Products
                 .Where(p => p.Sku == "LAPTOP" || p.Sku == "KEYBOARD")
                 .OrderBy(p => p.Sku)
                 .Select(p => p.Name)
@@ -210,21 +210,20 @@ public sealed class TranslatedQueryTests
     }
 
     [Fact]
-    public async Task Sql_HasOneParameterPerLanguage_AndLiteralNames()
+    public async Task CompiledSql_CarriesLanguageTokens_AndLiteralNames_NotParameters()
     {
         await using var shop = await Shop.StartAsync();
         await using var scope = await shop.ScopeInAsync("fr");
 
+        // ToQueryString shows the SQL as compiled, shared by every language: the languages are
+        // placeholders, filled in per execution — so no language parameter, and no bloat.
         var sql = scope.Db.Products
-            .AsTranslated(scope.Db)
             .Select(p => new { p.Name, p.Description, Category = p.Category!.Name })
             .ToQueryString();
 
-        var parameters = sql.Split('\n').Where(line => line.StartsWith(".param set", StringComparison.Ordinal)).ToList();
-
-        Assert.Equal(2, parameters.Count);                 // fr and its fallback en — not 18
-        Assert.Contains(parameters, p => p.EndsWith("'fr'", StringComparison.Ordinal));
-        Assert.Contains(parameters, p => p.EndsWith("'en'", StringComparison.Ordinal));
+        Assert.DoesNotContain(".param set", sql, StringComparison.Ordinal);
+        Assert.Contains("'~ml:L~'", sql, StringComparison.Ordinal);
+        Assert.Contains("'~ml:F~'", sql, StringComparison.Ordinal);
         Assert.Contains("'ShopProduct'", sql, StringComparison.Ordinal);
         Assert.Contains("'Description'", sql, StringComparison.Ordinal);
     }
@@ -232,24 +231,38 @@ public sealed class TranslatedQueryTests
     // ================================================================== misuse
 
     [Fact]
-    public async Task UnknownLanguage_Throws()
+    public async Task InLanguage_WithAnUnknownCode_ThrowsWhenTheQueryRuns()
     {
         await using var shop  = await Shop.StartAsync();
         await using var scope = shop.Scope();
 
-        Assert.Throws<UnknownLanguageException>(() => scope.Db.Products.AsTranslated(scope.Db, languageCode: "de"));
+        var query = scope.Db.Products.InLanguage("de");   // nothing checked yet: no context at hand
+
+        await Assert.ThrowsAsync<UnknownLanguageException>(() => query.ToListAsync());
     }
 
     [Fact]
-    public async Task AsTranslated_Twice_IsRefused()
+    public async Task InLanguage_WithTwoDifferentLanguages_IsRefused()
     {
         await using var shop  = await Shop.StartAsync();
         await using var scope = await shop.ScopeInAsync("fr");
 
-        var twice = scope.Db.Products.AsTranslated(scope.Db).Where(p => p.Price > 0).AsTranslated(scope.Db);
+        var query = scope.Db.Products.InLanguage("en").Where(p => p.Price > 0).InLanguage("fr");
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => twice.ToListAsync());
-        Assert.Contains("more than once", ex.Message, StringComparison.Ordinal);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => query.ToListAsync());
+        Assert.Contains("more than one language", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IgnoreTranslations_ReturnsEntitiesUnfilled()
+    {
+        await using var shop = await Shop.StartAsync();
+        await SeedAsync(shop);
+        await using var scope = await shop.ScopeInAsync("fr");
+
+        var product = await scope.Db.Products.AsNoTracking().IgnoreTranslations().SingleAsync(p => p.Sku == "LAPTOP");
+
+        Assert.Null(product.Name);   // default mode: no column, and nothing filled in
     }
 
     // ================================================================== projection
@@ -284,7 +297,7 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         var rows = await scope.Db.Products
-            .AsTranslated(scope.Db)
+            
             .OrderBy(p => p.Sku)
             .Select(p => new ProductRow(p.Sku, p.Name, p.Category!.Name))
             .ToListAsync();
@@ -302,7 +315,7 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         var category = await scope.Db.Categories
-            .AsTranslated(scope.Db)
+            
             .Select(c => new { c.Name, Products = c.Products.Select(p => p.Name).ToList() })
             .SingleAsync();
 
@@ -318,7 +331,7 @@ public sealed class TranslatedQueryTests
         await using var scope = await shop.ScopeInAsync("fr");
 
         var names = await scope.Db.Products
-            .AsTranslated(scope.Db, "en")
+            .InLanguage("en")
             .Where(p => p.Name != null)
             .OrderByDescending(p => p.Name)
             .Select(p => p.Name)
@@ -328,47 +341,59 @@ public sealed class TranslatedQueryTests
     }
 
     [Fact]
-    public async Task Include_AfterAsTranslated_StillLoadsTheNavigation()
+    public async Task Include_FillsTheNavigationToo()
     {
         await using var shop = await Shop.StartAsync();
         await SeedCatalogueAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
         var laptop = await scope.Db.Products.AsNoTracking()
-            .AsTranslated(scope.Db)
+            
             .Include(p => p.Category)
             .Where(p => p.Name == "Portable")
-            .FirstLocalizedOrDefaultAsync();
+            .FirstOrDefaultAsync();
 
         Assert.Equal("Portable", laptop!.Name);
         Assert.Equal("Livres", laptop.Category!.Name);
     }
 
     [Fact]
-    public async Task PlainProjection_OfAColumnlessProperty_IsRefused_InsteadOfReturningNull()
+    public async Task IgnoredProjection_OfAColumnlessProperty_IsRefused_InsteadOfReturningNull()
     {
         await using var shop = await Shop.StartAsync();
         await SeedCatalogueAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            scope.Db.Products.Select(p => new { p.Sku, p.Name }).ToListAsync());
+            scope.Db.Products.IgnoreTranslations().Select(p => new { p.Sku, p.Name }).ToListAsync());
 
         Assert.Contains("ShopProduct.Name", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("AsTranslated", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("IgnoreTranslations", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task PlainFilter_OnAColumnlessProperty_IsRefused_WithTheSameClearMessage()
+    public async Task IgnoredFilter_OnAColumnlessProperty_IsRefused_WithTheSameClearMessage()
     {
         await using var shop  = await Shop.StartAsync();
         await using var scope = await shop.ScopeInAsync("fr");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            scope.Db.Categories.Where(c => c.Products.Any(p => p.Name == "Portable")).ToListAsync());
+            scope.Db.Categories.IgnoreTranslations().Where(c => c.Products.Any(p => p.Name == "Portable")).ToListAsync());
 
         Assert.Contains("ShopProduct.Name", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("AsTranslated", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("IgnoreTranslations", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFilterThroughACollection_ComparesTheTranslatedValue()
+    {
+        await using var shop = await Shop.StartAsync();
+        await SeedCatalogueAsync(shop);
+        await using var scope = await shop.ScopeInAsync("fr");
+
+        var categories = await scope.Db.Categories.Where(c => c.Products.Any(p => p.Name == "Portable")).ToListAsync();
+
+        Assert.Equal("Livres", Assert.Single(categories).Name);
     }
 
     // ================================================================== base-language mode
@@ -387,18 +412,18 @@ public sealed class TranslatedQueryTests
         }
 
         await using var ar = await shop.ScopeInAsync("ar");
-        Assert.Equal(["LAPTOP"], await ar.Db.Products.AsTranslated(ar.Db).Where(p => p.Name == "حاسوب").Select(p => p.Sku).ToListAsync());
-        Assert.Equal(["MOUSE"], await ar.Db.Products.AsTranslated(ar.Db).Where(p => p.Name == "Mouse").Select(p => p.Sku).ToListAsync());
+        Assert.Equal(["LAPTOP"], await ar.Db.Products.Where(p => p.Name == "حاسوب").Select(p => p.Sku).ToListAsync());
+        Assert.Equal(["MOUSE"], await ar.Db.Products.Where(p => p.Name == "Mouse").Select(p => p.Sku).ToListAsync());
 
         // "Mouse" (column) sorts before "حاسوب".
-        Assert.Equal(["MOUSE", "LAPTOP"], await ar.Db.Products.AsTranslated(ar.Db).OrderBy(p => p.Name).Select(p => p.Sku).ToListAsync());
+        Assert.Equal(["MOUSE", "LAPTOP"], await ar.Db.Products.OrderBy(p => p.Name).Select(p => p.Sku).ToListAsync());
 
         await using var en = await shop.ScopeInAsync("en");
-        Assert.Equal(["LAPTOP"], await en.Db.Products.AsTranslated(en.Db).Where(p => p.Name == "Laptop").Select(p => p.Sku).ToListAsync());
+        Assert.Equal(["LAPTOP"], await en.Db.Products.Where(p => p.Name == "Laptop").Select(p => p.Sku).ToListAsync());
     }
 
     [Fact]
-    public async Task BaseLanguageMode_AsTranslated_ReadsTheTranslation_WhereAPlainSelectReadsTheColumn()
+    public async Task BaseLanguageMode_AQueryReadsTheTranslation_AndIgnoreTranslationsReadsTheColumn()
     {
         await using var shop = await BaseShop.StartAsync();
         var laptop = await shop.CreateProductAsync("LAPTOP", "Laptop");
@@ -412,11 +437,11 @@ public sealed class TranslatedQueryTests
 
         await using var ar = await shop.ScopeInAsync("ar");
 
-        var translated = await ar.Db.Products.AsTranslated(ar.Db).OrderBy(p => p.Sku).Select(p => p.Name).ToListAsync();
+        var translated = await ar.Db.Products.OrderBy(p => p.Sku).Select(p => p.Name).ToListAsync();
         Assert.Equal(["حاسوب", "Mouse"], translated);     // MOUSE falls back to the column
 
         // Valid SQL in this mode, and sometimes intended: the base column, never refused.
-        var column = await ar.Db.Products.OrderBy(p => p.Sku).Select(p => p.Name).ToListAsync();
+        var column = await ar.Db.Products.IgnoreTranslations().OrderBy(p => p.Sku).Select(p => p.Name).ToListAsync();
         Assert.Equal(["Laptop", "Mouse"], column);
     }
 }

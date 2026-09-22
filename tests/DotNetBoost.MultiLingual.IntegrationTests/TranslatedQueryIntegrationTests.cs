@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace DotNetBoost.MultiLingual.IntegrationTests;
 
 /// <summary>
-/// Translated queries (AsTranslated) and clearing a translation, on real engines — where the
+/// Translated queries — plain EF Core — and clearing a translation, on real engines — where the
 /// SQL differs: how a key is cast to text (a Guid's case above all), and how a correlated
 /// subquery inside COALESCE and ORDER BY is written.
 /// </summary>
@@ -84,10 +84,10 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
         await using var scope = await ScopeInAsync("fr");
         var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
 
-        var sorted = await db.Products.AsTranslated(db).OrderBy(p => p.Name).Select(p => p.Sku).ToListAsync();
+        var sorted = await db.Products.OrderBy(p => p.Name).Select(p => p.Sku).ToListAsync();
         Assert.Equal(["KEYBOARD", "MOUSE", "LAPTOP"], sorted);   // Clavier, Mouse (fallback), Portable
 
-        var mouse = await db.Products.AsTranslated(db).Where(p => p.Name == "Mouse").Select(p => p.Sku).ToListAsync();
+        var mouse = await db.Products.Where(p => p.Name == "Mouse").Select(p => p.Sku).ToListAsync();
         Assert.Equal(["MOUSE"], mouse);
     }
 
@@ -100,7 +100,7 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
         {
             await using var scope = await ScopeInAsync(language);
             var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
-            return await db.Products.AsTranslated(db)
+            return await db.Products
                 .Where(p => p.Sku == "LAPTOP" || p.Sku == "MOUSE")
                 .OrderBy(p => p.Sku)
                 .Select(p => p.Name)
@@ -110,6 +110,43 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
         Assert.Equal(["Portable", "Mouse"], await NamesAsync("fr"));   // MOUSE: English fallback
         Assert.Equal(["Laptop", "Mouse"], await NamesAsync("en"));
         Assert.Equal(["Portable", "Mouse"], await NamesAsync("fr"));
+    }
+
+    [Fact]
+    public async Task PlainQueries_ReturnFilledEntities_WithReferenceAndCollectionIncludes()
+    {
+        await using (var seed = _root.CreateAsyncScope())
+        {
+            var db = seed.ServiceProvider.GetRequiredService<ShopDbContext>();
+            var translations = seed.ServiceProvider.GetRequiredService<ITranslationManager>();
+
+            var books = new ShopCategory { Slug = "books" };
+            translations.Stage(books, "en", Values("Name", "Books"));
+            translations.Stage(books, "fr", Values("Name", "Livres"));
+
+            var laptop = new ShopProduct { Sku = "LAPTOP", Category = books };
+            translations.Stage(laptop, "en", Values("Name", "Laptop"));
+            translations.Stage(laptop, "fr", Values("Name", "Portable"));
+
+            var mouse = new ShopProduct { Sku = "MOUSE", Category = books };
+            translations.Stage(mouse, "en", Values("Name", "Mouse"));
+
+            db.Products.AddRange(laptop, mouse);
+            await db.SaveChangesAsync();
+        }
+
+        foreach (var (language, laptopName, categoryName) in new[] { ("fr", "Portable", "Livres"), ("en", "Laptop", "Books") })
+        {
+            await using var scope = await ScopeInAsync(language);
+            var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
+
+            var product = await db.Products.Include(p => p.Category).SingleAsync(p => p.Sku == "LAPTOP");
+            Assert.Equal((laptopName, categoryName), (product.Name, product.Category!.Name));
+
+            var category = await db.Categories.AsNoTracking().Include(c => c.Products).SingleAsync();
+            Assert.Equal(categoryName, category.Name);
+            Assert.Equal([laptopName, "Mouse"], category.Products.OrderBy(p => p.Sku).Select(p => p.Name));
+        }
     }
 
     [Fact]
@@ -127,12 +164,12 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
         await using var scope = await ScopeInAsync("fr");
         var read = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
 
-        var ids = await read.Documents.AsTranslated(read).Where(d => d.Title == "Guide").Select(d => d.Id).ToListAsync();
+        var ids = await read.Documents.Where(d => d.Title == "Guide").Select(d => d.Id).ToListAsync();
         Assert.Equal([id], ids);
     }
 
     [Fact]
-    public async Task AsTranslated_Select_ThroughANavigation_AndANestedCollection()
+    public async Task Select_ThroughANavigation_AndANestedCollection()
     {
         await using (var seed = _root.CreateAsyncScope())
         {
@@ -154,13 +191,13 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
         var read = scope.ServiceProvider.GetRequiredService<ShopDbContext>();
 
         var product = await read.Products
-            .AsTranslated(read)
+            
             .Select(p => new { p.Sku, p.Name, Category = p.Category!.Name })
             .SingleAsync();
         Assert.Equal(("LAPTOP", "Laptop", "Livres"), (product.Sku, product.Name, product.Category));   // Name falls back to en
 
         var category = await read.Categories
-            .AsTranslated(read)
+            
             .Select(c => new { c.Name, Products = c.Products.Select(p => p.Name).ToList() })
             .SingleAsync();
         Assert.Equal("Livres", category.Name);
@@ -209,7 +246,7 @@ public abstract class TranslatedQueryIntegrationTests : IAsyncLifetime
 
         var key = laptop.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
         Assert.False(await db.Translations.AnyAsync(t => t.LanguageCode == "fr" && t.EntityId == key));
-        Assert.Equal(["LAPTOP"], await db.Products.AsTranslated(db).Where(p => p.Name == "Laptop").Select(p => p.Sku).ToListAsync());
+        Assert.Equal(["LAPTOP"], await db.Products.Where(p => p.Name == "Laptop").Select(p => p.Sku).ToListAsync());
     }
 }
 

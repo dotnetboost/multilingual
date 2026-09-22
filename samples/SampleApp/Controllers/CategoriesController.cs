@@ -32,7 +32,7 @@ public sealed class CategoriesController(
             .AsNoTracking()
             .OrderBy(c => c.DisplayOrder)
             .ThenBy(c => c.Id)
-            .ToLocalizedListAsync(ct);
+            .ToListAsync(ct);
 
         return Ok(categories.Select(ToResponse).ToList());
     }
@@ -45,7 +45,7 @@ public sealed class CategoriesController(
         var category = await db.Categories
             .AsNoTracking()
             .Where(c => c.Id == id)
-            .FirstLocalizedOrDefaultAsync(ct)
+            .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Categories.NotFound", id);
 
         return Ok(ToResponse(category));
@@ -140,7 +140,7 @@ public sealed class CategoriesController(
         var saved = await db.Categories
             .AsNoTracking()
             .Where(c => c.Id == id)
-            .FirstLocalizedOrDefaultAsync(ct);
+            .FirstOrDefaultAsync(ct);
 
         return Ok(ToResponse(saved!) with { Message = localizer["Categories.Updated", saved!.Slug] });
     }

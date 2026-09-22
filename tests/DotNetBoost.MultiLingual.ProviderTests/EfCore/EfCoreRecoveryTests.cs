@@ -49,21 +49,22 @@ public sealed class EfCoreRecoveryTests
     // ================================================================== hydration vs. edits
 
     [Fact]
-    public async Task LaterLocalizedQuery_DoesNotOverwrite_AValueAssignedAfterLoading()
+    public async Task ALaterQuery_ThatFindsTheTrackedEntity_DoesNotOverwrite_AValueAssignedAfterLoading()
     {
         await using var shop = await Shop.StartAsync();
         var id = await SeedProductAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
-        // Loaded for update, not hydrated — so it stays queued in the registry.
+        // Loaded for update: every query fills it, so it reads "Portable".
         var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        Assert.Equal("Portable", product.Name);
         product.Name = "Ordinateur";
 
-        // Some unrelated read in the same scope drains the registry.
-        var categories = await scope.Db.Categories.AsNoTracking().ToLocalizedListAsync();
-        Assert.Equal("Books", Assert.Single(categories).Name);
-
+        // A later query returns the same tracked instance. It must not put "Portable" back.
+        var again = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        Assert.Same(product, again);
         Assert.Equal("Ordinateur", product.Name);
+
         await scope.Db.SaveChangesAsync();
 
         var french = Assert.Single(await shop.StoredTranslationsAsync(), t => t is { EntityName: "ShopProduct", LanguageCode: "fr" });
@@ -71,16 +72,19 @@ public sealed class EfCoreRecoveryTests
     }
 
     [Fact]
-    public async Task UntouchedEntities_LoadedEarlier_AreStillHydrated()
+    public async Task ALaterQuery_RefreshesAnUntouchedTrackedEntity_InTheScopesNewLanguage()
     {
         await using var shop = await Shop.StartAsync();
         var id = await SeedProductAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
-        var product = await scope.Db.Products.AsNoTracking().SingleAsync(p => p.Id == id);
-        await scope.Hydrator.HydratePendingAsync();
-
+        var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
         Assert.Equal("Portable", product.Name);
+
+        await scope.MultiLingual.UseLanguageAsync("en");
+        await scope.Db.Products.SingleAsync(p => p.Id == id);
+
+        Assert.Equal("Laptop", product.Name);
     }
 
     // ================================================================== failed save, then retry
@@ -230,35 +234,5 @@ public sealed class EfCoreRecoveryTests
         Assert.Equal("Laptop", await shop.StoredColumnNameAsync(id));
         var arabic = Assert.Single(await shop.StoredTranslationsAsync(), t => t.LanguageCode == "ar");
         Assert.Equal("حاسوب", arabic.Value);
-    }
-
-    // ================================================================== registry capacity
-
-    [Fact]
-    public void Registry_PastCapacity_RefusesToDrainAPartialSet()
-    {
-        var registry = new MaterializedEntityRegistry(NullLogger<MaterializedEntityRegistry>.Instance);
-
-        for (var i = 0; i <= MaterializedEntityRegistry.Capacity; i++)
-            registry.Register(new ShopCategory { Id = i });
-
-        var ex = Assert.Throws<InvalidOperationException>(() => registry.Drain());
-        Assert.Contains(MaterializedEntityRegistry.Capacity.ToString(System.Globalization.CultureInfo.InvariantCulture), ex.Message);
-
-        // The scope can carry on: the overflow is reported once, and the registry starts empty.
-        Assert.Empty(registry.Drain());
-        registry.Register(new ShopCategory { Id = -1 });
-        Assert.Single(registry.Drain());
-    }
-
-    [Fact]
-    public void Registry_AtCapacity_DrainsEverything()
-    {
-        var registry = new MaterializedEntityRegistry(NullLogger<MaterializedEntityRegistry>.Instance);
-
-        for (var i = 0; i < MaterializedEntityRegistry.Capacity; i++)
-            registry.Register(new ShopCategory { Id = i });
-
-        Assert.Equal(MaterializedEntityRegistry.Capacity, registry.Drain().Count);
     }
 }

@@ -2,6 +2,7 @@ using DotNetBoost.MultiLingual.Core;
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Metadata;
 using DotNetBoost.MultiLingual.Core.Models;
+using DotNetBoost.MultiLingual.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -64,6 +65,9 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
 
     private ITranslationManager? _manager;
     private ITranslationManager Manager => _manager ??= services.GetRequiredService<ITranslationManager>();
+
+    private TranslationManager? _engine;
+    private TranslationManager Engine => _engine ??= services.GetRequiredService<TranslationManager>();
 
     private MultiLingualOptions? _options;
     private MultiLingualOptions Options => _options ??= services.GetRequiredService<MultiLingualOptions>();
@@ -369,11 +373,16 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     /// <list type="bullet">
     ///   <item><b>Assigned</b> — the column is excluded from the UPDATE and the value goes to the
     ///   translations table instead.</item>
-    ///   <item><b>Untouched</b> — whatever is in the property came from the base column, because a
-    ///   write endpoint loads without hydrating. It is declared as a borrowed base value, so it is
-    ///   not written back as a translation. Without this, updating only a product's price under
-    ///   <c>Accept-Language: ar</c> would file its English name as the Arabic one.</item>
+    ///   <item><b>Untouched</b> — whatever is in the property is what a read left there. It is
+    ///   declared as a borrowed base value, so it is not written back as a translation. Without
+    ///   this, updating only a product's price under <c>Accept-Language: ar</c> would file its
+    ///   English name as the Arabic one.</item>
     /// </list>
+    /// <para>
+    /// Before either, in any scope: a value a read served from another language and nobody changed
+    /// — every query fills tracked entities — is kept out of the base column, even where no
+    /// language is resolved or the base language is being authored.
+    /// </para>
     /// <para>
     /// <b>Why the original value is moved rather than the flag just cleared.</b> Clearing
     /// <c>IsModified</c> on its own makes EF reject the change and restore the property from its
@@ -392,6 +401,30 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (!Options.HasBaseLanguage)
             return;
 
+        // In any scope: a value a read served from another language — every query fills tracked
+        // entities in the request's language — and that nobody has changed since, is not the base
+        // text, and must never be written to the base column. A background job with no language
+        // resolved, reading in a default language other than the base one, would otherwise file
+        // that language's text as the base text on its next save.
+        var served = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in MultiLingualMetadata.For(entry.Metadata.ClrType))
+        {
+            if (entry.Metadata.FindProperty(property.Name) is null)
+                continue;
+
+            var member = entry.Property(property.Name);
+            if (!Engine.HoldsServedTranslation(entry.Entity, property.Name, member.CurrentValue as string))
+                continue;
+
+            if (member.IsModified)
+            {
+                member.OriginalValue = member.CurrentValue;
+                member.IsModified    = false;
+            }
+
+            served.Add(property.Name);
+        }
+
         var language = LanguageContext;
         if (!language.IsResolved || Options.IsBaseLanguage(language.Current.Code))
             return;
@@ -401,7 +434,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
 
         foreach (var property in MultiLingualMetadata.For(entry.Metadata.ClrType))
         {
-            if (entry.Metadata.FindProperty(property.Name) is null)
+            if (entry.Metadata.FindProperty(property.Name) is null || served.Contains(property.Name))
                 continue;
 
             var member = entry.Property(property.Name);

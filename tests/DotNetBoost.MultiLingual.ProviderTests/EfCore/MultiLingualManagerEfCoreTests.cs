@@ -43,7 +43,7 @@ public sealed class MultiLingualManagerEfCoreTests
         Assert.DoesNotContain(await shop.StoredTranslationsAsync(), t => t.LanguageCode == "ar");
 
         await using var read = await shop.ScopeInAsync("ar");
-        var localized = await read.Db.Products.AsNoTracking().Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
+        var localized = await read.Db.Products.AsNoTracking().Where(p => p.Id == id).FirstOrDefaultAsync();
         Assert.Equal("Laptop", localized!.Name);   // falls back to English now
     }
 
@@ -60,29 +60,29 @@ public sealed class MultiLingualManagerEfCoreTests
     }
 
     [Fact]
-    public async Task LocalizedQuery_ThatFindsNothing_ReturnsEmpty()
+    public async Task AQuery_ThatFindsNothing_ReturnsEmpty()
     {
         await using var shop  = await Shop.StartAsync();
         await using var scope = await shop.ScopeInAsync("ar");
 
-        Assert.Empty(await scope.Db.Products.ToLocalizedListAsync());
-        Assert.Null(await scope.Db.Products.FirstLocalizedOrDefaultAsync());
-        Assert.Null(scope.Db.Products.SingleLocalizedOrDefault());
+        Assert.Empty(await scope.Db.Products.ToListAsync());
+        Assert.Null(await scope.Db.Products.FirstOrDefaultAsync());
+        Assert.Null(scope.Db.Products.SingleOrDefault());
     }
 
     [Fact]
-    public async Task LocalizedQuery_OnAPlainEntityType_IsJustTheQuery()
+    public async Task AQuery_OnAPlainEntityType_IsJustTheQuery()
     {
         await using var shop  = await Shop.StartAsync();
         await using var scope = await shop.ScopeInAsync("ar");
 
-        var languages = await scope.Db.Languages.AsNoTracking().OrderBy(l => l.Code).ToLocalizedListAsync();
+        var languages = await scope.Db.Languages.AsNoTracking().OrderBy(l => l.Code).ToListAsync();
 
         Assert.Equal(["ar", "en", "fr"], languages.Select(l => l.Code));
     }
 
     [Fact]
-    public async Task ConcurrentLocalizedReads_OnDifferentContexts_EachLocalizeTheirOwn()
+    public async Task ConcurrentReads_OnDifferentContexts_EachReadTheirOwnLanguage()
     {
         // Two applications (each its own database connection), read at the same time in different
         // languages. Each read has to find its own context's services — never the other one's.
@@ -98,7 +98,7 @@ public sealed class MultiLingualManagerEfCoreTests
             {
                 await using var scope = await shop.ScopeInAsync(language);
                 await Task.Yield();
-                names.AddRange((await scope.Db.Products.AsNoTracking().ToLocalizedListAsync()).Select(p => p.Name));
+                names.AddRange((await scope.Db.Products.AsNoTracking().ToListAsync()).Select(p => p.Name));
             }
 
             return names;

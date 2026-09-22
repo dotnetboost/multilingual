@@ -27,8 +27,6 @@ namespace Microsoft.Extensions.DependencyInjection
             services.Replace(ServiceDescriptor.Scoped<IEntityKeyAccessor>(
                 sp => new EfCoreEntityKeyAccessor(sp.GetRequiredService<TContext>())));
 
-            services.TryAddScoped<MaterializedEntityRegistry>();
-            services.TryAddScoped<ITranslationHydrator, TranslationHydrator>();
             services.TryAddScoped<MultiLingualSaveChangesInterceptor>();
 
             return builder;
@@ -39,8 +37,9 @@ namespace Microsoft.Extensions.DependencyInjection
     public static class MultiLingualDbContextOptionsExtensions
     {
         /// <summary>
-        /// Adds the save, materialization and query interceptors, resolved from the scoped provider
-        /// so they see the current request's language. Use the <c>(sp, options)</c> overload of
+        /// Adds the save, materialization, query and command interceptors, which translate every
+        /// query on the context and read and write translations for the scope's language. Use the
+        /// <c>(sp, options)</c> overload of
         /// <c>AddDbContext</c>:
         /// <code>
         /// services.AddDbContext&lt;AppDbContext&gt;((sp, o) =&gt; o.UseSqlite(cs).UseMultiLingual(sp));
@@ -58,7 +57,11 @@ namespace Microsoft.Extensions.DependencyInjection
                     "The MultiLingual EF Core provider is not registered. Call " +
                     "services.AddMultiLingual().UseEntityFrameworkCore<TContext>().Build() first.");
 
-            return options.AddInterceptors(save, MultiLingualMaterializationInterceptor.Instance, MultiLingualQueryInterceptor.Instance);
+            return options.AddInterceptors(
+                save,
+                MultiLingualMaterializationInterceptor.Instance,
+                MultiLingualQueryInterceptor.Instance,
+                LanguageTokenInterceptor.Instance);
         }
     }
 }

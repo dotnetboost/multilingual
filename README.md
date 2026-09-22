@@ -90,11 +90,13 @@ builder.Services.AddMultiLingual(o => o.BaseLanguage = "en")
     .Build();
 ```
 
-Controllers then read and write `Product.Name` like any other property:
+Controllers then read and write `Product.Name` like any other property — with nothing but EF
+Core's own methods:
 
 ```csharp
-// Read: one query for the products, one for all their translations.
-var products = await db.Products.AsNoTracking().ToLocalizedListAsync(ct);
+// Read: plain EF Core. Name comes back in the request's language (with fallback), filled in by the
+// same SQL statement that loads the products.
+var products = await db.Products.AsNoTracking().Where(p => p.Name!.Contains(term)).ToListAsync(ct);
 
 // Write: assign only what the caller supplied, and Name is stored for the request's language.
 // Other languages are untouched. Assigning null would mean "not supplied" in the default mode,
@@ -218,80 +220,84 @@ multiLingual.For(product).Clear("fr");                // every translatable prop
 await db.SaveChangesAsync();
 ```
 
-**Projecting, filtering and sorting.** A plain LINQ query cannot see translations. In the
-default mode a translatable property has no column at all; in base-language mode its column
-only ever holds the base language. So neither of these gives the request's language:
+**Every query is translated.** On a context configured with `UseMultiLingual(sp)` there is nothing
+to call: every read of a translatable property — in `Where`, `OrderBy`, `Select`, through
+navigations, inside nested collections, in `Count` / `Any` / `ExecuteDelete` — is the value a read
+shows (requested language, then the default, then the base column), and every entity a query
+returns comes back with its translatable properties filled in, included navigations too. It all
+runs in the database, in the query's own SQL statement:
 
 ```csharp
-db.Products.Select(p => new ProductDto { Name = p.Name })   // default mode: refused (see below)
-                                                            // base-language mode: always the base language
-db.Products.Where(p => p.Name.Contains(term))               // default mode: refused
-```
-
-Call `AsTranslated(db)` once, and the rest is plain LINQ. Every read of a translatable property in
-the query — in `Where`, `OrderBy`, `Select`, through navigations and in nested collections —
-becomes the value a read would show: requested language, then the default, then the base column.
-It all runs in the database, in one SQL statement:
-
-```csharp
-// Project straight into a DTO — navigations and nested collections included.
-var rows = await db.Products
-    .AsTranslated(db)
-    .Select(p => new ProductDto { Sku = p.Sku, Name = p.Name, Category = p.Category!.Name })
+// Entities, filtered and sorted on translated text; Category.Name filled too.
+var page = await db.Products
+    .Where(p => p.CategoryId == categoryId && p.Name!.Contains(term))   // ordinary columns stay ordinary
+    .OrderBy(p => p.Name)
+    .Include(p => p.Category)
+    .Skip(skip).Take(take)
     .ToListAsync(ct);
 
-// Filter and sort — ordinary columns stay ordinary, and keep using their indexes.
-var page = await db.Products
-    .AsTranslated(db)
-    .Where(p => p.CategoryId == categoryId && p.Name!.Contains(term))
-    .OrderBy(p => p.Name)
-    .Skip(skip).Take(take)
-    .ToLocalizedListAsync(ct);                    // whole entities: also fill their properties
+// Straight into a DTO — navigations and nested collections included.
+var rows = await db.Products
+    .Select(p => new ProductDto { Sku = p.Sku, Name = p.Name, Category = p.Category!.Name })
+    .ToListAsync(ct);
 ```
 
-Pass the same `db` the query runs on; the language is the current one unless you pass
-`languageCode`. Call it once per query — where in the chain does not matter, it covers the whole
-query. Types in an inheritance hierarchy should share one entity name (`[MultiLingualEntity]` on
-the base), since a query over the base type looks rows up by its name.
+That covers `ToListAsync`, `First…`, `Single…`, `Last…`, `ElementAt…`, `Find`, `foreach` /
+`AsAsyncEnumerable`, synchronous queries, tracking and no-tracking queries, explicit loading,
+split queries, and `Include` / `ThenInclude` — collection, reference, filtered, string-based and
+automatic includes alike. A tracked entity that a later query finds again is refreshed only where
+nobody has edited it since, so a read never overwrites an unsaved change.
 
-*How:* EF compiles a query shape once and reuses it, so `AsTranslated` does not bake the language
-in. It marks the query with the language codes as SQL parameters, and the library's query
-interceptor replaces each translatable property with an indexed lookup that uses them. Entity and
-property names are written into the SQL as literals, so three translated properties in two
-languages cost two parameters.
+Two switches change one query:
 
-*Cost.* Each translated value is an indexed lookup per language in the chain. Measured on
-PostgreSQL 17 (warm cache, Arabic with English fallback):
+```csharp
+db.Products.InLanguage("fr")          // read this query in French, whatever the request's language
+db.Products.IgnoreTranslations()      // read the stored columns: in base-language mode, the base text
+```
 
-| Products | Page of 20 with translated names | Search on translated name | Sort by translated name, page 1 |
-|---:|---:|---:|---:|
-| 1,000 | < 1 ms | 2 ms | 3 ms |
-| 10,000 | < 1 ms | 23 ms | 26 ms |
-| 100,000 | < 1 ms | 250 ms | 275 ms |
-| 1,000,000 | < 1 ms | 1.8 s | 1.7 s |
+`IgnoreTranslations()` in the default mode, where a translatable property has no column, returns
+entities with those properties `null` — and a query that reads one is refused with an error naming
+the property, rather than EF quietly projecting `null`. `InLanguage` compiles one query per code,
+like any constant: pass the application's languages, not free user input.
+
+Types in an inheritance hierarchy should share one entity name (`[MultiLingualEntity]` on the base),
+since a query over the base type looks rows up by its name.
+
+*How.* EF compiles a query shape once and reuses it for every request, so the compiled SQL cannot
+contain the request's language. Three interceptors split the work, all through EF Core's
+documented interception API:
+
+1. **When EF compiles the query**, the query-expression interceptor replaces every translatable
+   property read with indexed lookups into the translations table, and gives a query that returns
+   entities a final projection that loads their translated values alongside. Where the languages
+   go it writes placeholders; entity and property names are literals.
+2. **Before each execution**, a command interceptor puts the scope's languages in place of the
+   placeholders — which is why `ToQueryString()` shows `'~ml:L~'` rather than `'fr'`.
+3. **As EF materializes each entity**, the materialization interceptor records which context it
+   belongs to, so the projection can serve the values through that request's engine — recording,
+   as a hydration always has, which values came from a fallback, so saving never promotes them.
+
+*Cost.* Each translated value is an indexed lookup per language in the chain, in the same statement.
+Measured on PostgreSQL 17 (warm cache, Arabic with English fallback):
+
+| Products | Page of 20 entities, translated | 1,000 entities, translated (untranslated) | Search on translated name | Sort by translated name, page 1 |
+|---:|---:|---:|---:|---:|
+| 1,000 | < 1 ms | 6 ms (2.5 ms) | 2 ms | 2 ms |
+| 10,000 | < 1 ms | 6 ms (2.4 ms) | 26 ms | 25 ms |
+| 100,000 | < 1 ms | 6 ms (1.5 ms) | 277 ms | 281 ms |
+| 1,000,000 | < 1 ms | 7 ms (1.4 ms) | 1.8 s | 1.7 s |
 
 Returning translated rows is cheap at any size. Searching or sorting *on* translated text reads it
 for every candidate row, like any `LIKE '%…%'` on a column — so narrow with an ordinary column
-where you can (the same 1M-row search within one category: ~75 ms), keep the base language as a
+where you can (the same 1M-row search within one category: ~95 ms), keep the base language as a
 real, indexable column (base-language mode), and use a search engine for full-text search over
 large catalogues.
-
-In the default mode, a query that reads a translatable property without `AsTranslated` is refused
-with an error naming the property and `AsTranslated` — rather than EF quietly projecting `null`. In
-base-language mode a plain query is valid and reads the base column, which is sometimes what you
-want, so it is not refused.
 
 **EF Core specifics.** `ApplyMultiLingual()` removes translatable properties from the model — or,
 with a base language configured, leaves them mapped. The save interceptor captures values in
 `SavingChanges` and writes them in `SavedChanges`, once generated keys exist, in the same
 transaction — opening one if the caller has not. It also inspects `Unchanged` entries, because
-assigning only an unmapped property does not make EF consider the entity modified. The
-materialization interceptor records loaded entities (including ones reached through `Include`) so
-`ToLocalizedListAsync` can fill them all in one round trip. It also tells the running query which
-context it materialized for, which is why the localized helpers need neither the context nor any
-other argument. Synchronous code has the same helpers
-without the suffix — `ToLocalizedList`, `FirstLocalizedOrDefault`, `SingleLocalizedOrDefault` —
-and, like a synchronous `SaveChanges`, they never block on asynchronous work.
+assigning only an unmapped property does not make EF consider the entity modified.
 
 ## Base-language mode
 
@@ -323,7 +329,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 | Missing translation falls back to | default language, then `null` | default language, then the base column |
 | Reading the base language costs | 2 queries | 1 query — nothing is fetched |
 | `SELECT * FROM Products` | no names | names, in the base language |
-| Filter/sort in SQL | `AsTranslated(db)` | directly in the base language; `AsTranslated(db)` for the others |
+| Filter/sort in SQL | automatic | automatic; `IgnoreTranslations()` to filter on the base column itself |
 | Adding a translatable property | no migration | a migration, for the new column |
 
 **Why it is not just "the default language".** The default language is a row in the language
@@ -353,10 +359,11 @@ if (request.Name is not null)
 
 Two things make that the right shape here. Translatable properties are real columns, so assigning
 `null` *erases* the stored base value instead of meaning "not supplied". And a property nobody
-assigns keeps whatever the column was loaded with — write endpoints deliberately load without
-hydrating, which in this mode leaves English sitting in `product.Name`. The engine recognises that
-value as borrowed from the base column and never writes it back, so updating only a price under
-`Accept-Language: ar` cannot file the English name as the Arabic one.
+assigns keeps whatever the query read — the Arabic text, or English borrowed from the base column
+when there is no Arabic. The engine recognises such a value as read, not authored, and never writes
+it back: updating only a price under `Accept-Language: ar` can neither file the English name as the
+Arabic one nor put the Arabic name into the English column. That holds in every scope — a
+background job reading in a default language other than the base one included.
 
 Everything else is unchanged: the value goes to `Translations`, and the base column is left out of
 the `UPDATE` entirely.
@@ -611,9 +618,14 @@ See [docs/adding-a-provider.md](docs/adding-a-provider.md) for what a provider h
   transaction yourself inside `Database.CreateExecutionStrategy().ExecuteAsync(...)`.
 - **Adding a translatable property** needs no migration in the default mode, and a migration for
   the new column in base-language mode.
-- **Filtering and sorting** on translated values is not translated into SQL — they are not
-  columns. Query `Translations` directly when you need to. In base-language mode the base
-  language *is* a column, so filtering and sorting in that one language works normally.
+- **Relational providers only.** The languages reach a query through command interception, which EF
+  Core offers for relational databases — SQL Server, PostgreSQL, SQLite.
+- **What a query does not fill.** Entities it returns directly, inside a final `Select` (`new { p,
+  p.Category }`), or through `Include` are filled. Entities in a collection placed inside a
+  projection (`Select(c => new { c.Products })`), in `GroupBy` results, or loaded outside EF are
+  not; pass them to `multiLingual.LocalizeAsync(entities)`.
+- **`ToQueryString()` and EF's SQL logs show placeholders** (`'~ml:L~'`) where the languages go:
+  they print the compiled SQL, before the command interceptor fills in the request's languages.
 - **Changing `BaseLanguage`** after content exists is a data migration, not a configuration
   change: the column and the translation rows would have to swap.
 - **Two contexts of the same type** configured with different `BaseLanguage` values in one

@@ -150,8 +150,6 @@ internal sealed class ShopScope(AsyncServiceScope scope) : IAsyncDisposable
 
     public ShopDbContext Db => Get<ShopDbContext>();
 
-    public ITranslationHydrator Hydrator => Get<ITranslationHydrator>();
-
     public ITranslationManager Translations => Get<ITranslationManager>();
 
     public IMultiLingualManager MultiLingual => Get<IMultiLingualManager>();

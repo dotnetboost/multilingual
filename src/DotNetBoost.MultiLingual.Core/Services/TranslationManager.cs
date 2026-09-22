@@ -198,64 +198,139 @@ internal sealed partial class TranslationManager(
                 fallbacks[rowKey] = row.Value;
         }
 
-        var byKey = batch.ByKey;
-
-        var baseLanguage = options.BaseLanguage;
-
-        foreach (var (entityId, instances) in byKey)
+        foreach (var (entityId, instances) in batch.ByKey)
         {
             foreach (var property in properties)
             {
                 var key = (entityId, property.Name);
-
-                // Requested language, then default language, then the base language's column,
-                // then null.
-                string? value = null;
-                string? servedFrom = null;
-                var isFallback = false;
-                var keepColumnValue = false;
-
-                if (requested.TryGetValue(key, out var own) && own is not null)
-                {
-                    value      = own;
-                    servedFrom = language;
-                }
-                else if (fallback is not null && fallbacks.TryGetValue(key, out var borrowed) && borrowed is not null)
-                {
-                    value      = borrowed;
-                    servedFrom = fallback;
-                    isFallback = true;
-                }
-                else if (baseLanguage is not null)
-                {
-                    // The base language is the column the entity was loaded with: keep it as it
-                    // is. Writing it back is what the tracker below exists to prevent.
-                    keepColumnValue = true;
-                    servedFrom      = baseLanguage;
-                    isFallback      = !string.Equals(language, baseLanguage, StringComparison.OrdinalIgnoreCase);
-                }
+                requested.TryGetValue(key, out var own);
+                fallbacks.TryGetValue(key, out var borrowed);
 
                 foreach (var instance in instances)
-                {
-                    string? effective;
-                    if (keepColumnValue)
-                    {
-                        effective = property.GetValue(instance);
-                    }
-                    else
-                    {
-                        property.SetValue(instance, value);
-                        effective = value;
-                    }
-
-                    if (servedFrom is null)
-                        tracker.Forget(instance, property.Name);
-                    else
-                        tracker.Mark(instance, property.Name, effective, servedFrom, isFallback);
-                }
+                    Serve(instance, property, own, borrowed, language, fallback);
             }
         }
     }
+
+    /// <summary>
+    /// Serves one property of one instance along the chain — requested language, then default
+    /// language, then the base language's column, then null — and records where the value came
+    /// from, so that saving the instance does not write it back as a translation.
+    /// </summary>
+    private void Serve(object instance, TranslatableProperty property, string? own, string? borrowed, string language, string? fallback)
+    {
+        var baseLanguage = options.BaseLanguage;
+
+        string? value = null;
+        string? servedFrom = null;
+        var isFallback = false;
+        var keepColumnValue = false;
+
+        if (own is not null)
+        {
+            value      = own;
+            servedFrom = language;
+        }
+        else if (fallback is not null && borrowed is not null)
+        {
+            value      = borrowed;
+            servedFrom = fallback;
+            isFallback = true;
+        }
+        else if (baseLanguage is not null)
+        {
+            // The base language is the column the entity was loaded with: keep it as it is.
+            // Writing it back is what the tracker below exists to prevent.
+            keepColumnValue = true;
+            servedFrom      = baseLanguage;
+            isFallback      = !string.Equals(language, baseLanguage, StringComparison.OrdinalIgnoreCase);
+        }
+
+        string? effective;
+        if (keepColumnValue)
+        {
+            effective = property.GetValue(instance);
+        }
+        else
+        {
+            property.SetValue(instance, value);
+            effective = value;
+        }
+
+        if (servedFrom is null)
+            tracker.Forget(instance, property.Name);
+        else
+            tracker.Mark(instance, property.Name, effective, servedFrom, isFallback);
+    }
+
+    // ------------------------------------------------------------------ values loaded by a query
+
+    /// <summary>
+    /// The languages a read serves right now: <paramref name="explicitLanguage"/> or the current
+    /// one (the default when none is resolved), and the language it falls back to — null when the
+    /// fallback is disabled, is the same language, or the requested language is the base one,
+    /// whose column already ends the chain.
+    /// </summary>
+    /// <exception cref="UnknownLanguageException"><paramref name="explicitLanguage"/> does not exist.</exception>
+    internal (string Language, string? Fallback) ReadLanguages(string? explicitLanguage = null)
+    {
+        var plan = explicitLanguage is not null
+            ? Plan(catalog.GetAll(), explicitLanguage)
+            : languageContext.IsResolved
+                ? Plan(languageContext.Current.Code, languageContext.DefaultLanguage.Code)
+                : Plan(DefaultOf(catalog.GetAll()));
+
+        return (plan.Language, plan.Fallback);
+    }
+
+    /// <summary>
+    /// Applies values a query loaded together with <paramref name="entity"/> — for each of
+    /// <paramref name="properties"/>, the stored value in <paramref name="language"/> and in
+    /// <paramref name="fallback"/> — exactly as hydration would.
+    /// <para>
+    /// A property is only served while it still holds what the query materialized
+    /// (<paramref name="materialized"/>, when the entity is new to this query) or what was served
+    /// to it last. Anything else was assigned by the caller since — an entity the query found
+    /// already tracked — and is left alone, so a later read cannot overwrite an unsaved edit.
+    /// </para>
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="properties">The translatable properties of the type the query declared, which the values follow.</param>
+    /// <param name="language">The language the values were read in.</param>
+    /// <param name="fallback">The fallback they were read in, or null.</param>
+    /// <param name="values">Two per property: requested language, then fallback.</param>
+    /// <param name="materialized">The property values as materialized, by name; null when not new to this query.</param>
+    internal void ApplyLoaded(
+        object entity,
+        IReadOnlyList<TranslatableProperty> properties,
+        string language,
+        string? fallback,
+        IReadOnlyList<string?> values,
+        IReadOnlyDictionary<string, string?>? materialized)
+    {
+        for (var i = 0; i < properties.Count && (2 * i) + 1 < values.Count; i++)
+        {
+            var property = properties[i];
+            var current  = property.GetValue(entity);
+
+            var untouched = (materialized is not null
+                             && materialized.TryGetValue(property.Name, out var loaded)
+                             && string.Equals(current, loaded, StringComparison.Ordinal))
+                            || tracker.IsServedValue(entity, property.Name, current);
+            if (!untouched)
+                continue;
+
+            Serve(entity, property, values[2 * i], values[(2 * i) + 1], language, fallback);
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="propertyName"/> still holds what a read served it from a language
+    /// other than the base one — a value that must never be written to the base language's column.
+    /// </summary>
+    internal bool HoldsServedTranslation(object entity, string propertyName, string? currentValue) =>
+        options.BaseLanguage is { } baseLanguage
+        && tracker.IsServedFromAnotherLanguage(entity, propertyName, currentValue, baseLanguage);
 
     // ================================================================== write
 

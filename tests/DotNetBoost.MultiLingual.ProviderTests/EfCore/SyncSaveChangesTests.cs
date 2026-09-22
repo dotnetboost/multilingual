@@ -150,7 +150,7 @@ public sealed class SyncSaveChangesTests
     }
 
     [Fact]
-    public async Task ToLocalizedList_OnABlockedUiThread_DoesNotDeadlock()
+    public async Task SyncQueries_OnABlockedUiThread_DoNotDeadlock()
     {
         await using var shop = await StartYieldingShopAsync();
         await using (var seed = await shop.ScopeInAsync("en"))
@@ -172,11 +172,11 @@ public sealed class SyncSaveChangesTests
         ShopProduct? first = null;
         var (finished, error, posted) = RunOnBlockedUiThread(() =>
         {
-            products = scope.Db.Products.AsNoTracking().ToLocalizedList();
-            first    = scope.Db.Products.AsNoTracking().FirstLocalizedOrDefault();
+            products = scope.Db.Products.AsNoTracking().ToList();
+            first    = scope.Db.Products.AsNoTracking().FirstOrDefault();
         });
 
-        Assert.True(finished, "ToLocalizedList deadlocked waiting for work posted to the UI thread.");
+        Assert.True(finished, "A synchronous translated query deadlocked waiting for work posted to the UI thread.");
         Assert.Null(error);
         Assert.Equal(0, posted);
         Assert.Equal("Pen", Assert.Single(products!).Name);   // the default language, English

@@ -60,6 +60,23 @@ internal sealed class HydratedValueTracker
             byProperty.Remove(propertyName);
     }
 
+    /// <summary>True when <paramref name="currentValue"/> is still exactly what a read served to the property.</summary>
+    public bool IsServedValue(object entity, string propertyName, string? currentValue) =>
+        _values.TryGetValue(entity, out var byProperty)
+        && byProperty.TryGetValue(propertyName, out var hydrated)
+        && string.Equals(hydrated.Value, currentValue, StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when <paramref name="currentValue"/> is still what a read served to the property, from
+    /// a language other than <paramref name="baseLanguage"/> — a value that must never reach the
+    /// base language's column.
+    /// </summary>
+    public bool IsServedFromAnotherLanguage(object entity, string propertyName, string? currentValue, string baseLanguage) =>
+        _values.TryGetValue(entity, out var byProperty)
+        && byProperty.TryGetValue(propertyName, out var hydrated)
+        && string.Equals(hydrated.Value, currentValue, StringComparison.Ordinal)
+        && !string.Equals(hydrated.LanguageCode, baseLanguage, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>True when writing <paramref name="currentValue"/> in <paramref name="authoringLanguage"/> would be redundant or wrong.</summary>
     public bool IsUnchanged(object entity, string propertyName, string? currentValue, string authoringLanguage) =>
         _values.TryGetValue(entity, out var byProperty)

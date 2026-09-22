@@ -79,8 +79,9 @@ public interface IMultiLingualManager
     /// falling back to the default language for missing values. Values that exist in neither are
     /// set to <c>null</c>.
     /// <para>
-    /// With EF Core you rarely need this — <c>ToLocalizedListAsync()</c> does it for you. Call it
-    /// after a Dapper or MongoDB query, or for entities you built yourself.
+    /// With EF Core you rarely need this — every query fills the entities it returns. Call it after
+    /// a Dapper or MongoDB query, or for entities EF did not return directly (a collection inside
+    /// a projection, say) or that you built yourself.
     /// </para>
     /// </summary>
     Task LocalizeAsync(IEnumerable<object> entities, CancellationToken ct = default);

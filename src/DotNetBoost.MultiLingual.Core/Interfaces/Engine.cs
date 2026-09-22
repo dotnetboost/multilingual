@@ -160,10 +160,9 @@ internal interface ITranslationManager
     /// <para>
     /// Only meaningful in base-language mode, and a no-op without one. Call it before
     /// <see cref="SaveAsync"/> for the properties a caller did not touch, when saving without a
-    /// change tracker (Dapper, say — the EF Core provider does it for you): a write endpoint
-    /// deliberately loads without hydrating, which in this mode still leaves the base column's
-    /// value in the property, and writing that back would quietly turn English text into an Arabic
-    /// translation.
+    /// change tracker (Dapper, say — the EF Core provider does it for you): an entity loaded for
+    /// update without being localized still holds the base column's value in the property, and
+    /// writing that back would quietly turn English text into an Arabic translation.
     /// </para>
     /// </summary>
     void MarkAsBaseLanguageValues(object entity, IEnumerable<string> propertyNames);
