@@ -1,147 +1,88 @@
 # Changelog
 
-All notable changes to this project are documented here.
-This project follows [Semantic Versioning](https://semver.org/).
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
+[Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.0-preview.1] - Unreleased
 
-Initial library, extracted from the MultilingualApi prototype.
+First public release: translatable content for any entity, driven by a `[MultiLingual]` attribute,
+with an Entity Framework Core provider and ASP.NET Core integration. The API may still change
+before 1.0.0.
 
-### Added
-- **Base-language mode.** `AddMultiLingual(o => o.BaseLanguage = "en")` stores one language in
-  each entity's own table and every other language in `Translations`, with a missing translation
-  falling back to that column. Independent of the default language, which stays changeable at
-  runtime without moving stored content. An entity may only be created in the base language
-  (`BaseLanguageRequiredException`, HTTP 409), and the base language cannot be deleted or
-  deactivated. `modelBuilder.ApplyMultiLingual(this)` makes the mapping follow the configuration;
-  a mapping that disagrees with it fails on the first save rather than corrupting a column.
-  A startup check confirms the base language exists in the store and is active — tolerating an
-  unreadable store and an empty language list, which are bootstrapping rather than mistakes.
-  Turn it off with `DisableStartupValidation()` and run `services.ValidateMultiLingualAsync()`
-  when it suits. This adds a `Microsoft.Extensions.Hosting.Abstractions` reference to
-  `DotNetBoost.MultiLingual.Core`, for `IHostedService` only.
-- `ITranslationManager.MarkAsBaseLanguageValues`, so a provider can declare which properties still
-  hold the base column's value rather than something a caller assigned. The EF Core interceptor
-  uses it for every property an update did not touch: a write endpoint loads without hydrating,
-  which in base-language mode leaves the base value in the property, and writing it back would
-  quietly file English text as the Arabic translation.
-- The sample application runs in base-language mode (`BaseLanguage = "en"`), so `Products.Name`
-  and `Categories.Name` are real columns and `SampleApp.http` walks the rules that come with it.
-  It also shows searching and sorting on the translated name (`?search=`, `?sort=`), a translated
-  DTO projection (`GET /api/products/summaries`), clearing one language's translation
-  (`DELETE /api/products/{id}/translations/{language}`), a bulk delete followed by the orphan
-  purge (`DELETE /api/products?categoryId=`), and — commented, since it is one process — how to
-  share language changes between instances.
-- `DotNetBoost.MultiLingual.Core`: `[MultiLingual]` / `[NotMultiLingual]`, `ITranslationManager`
-  (hydrate with default-language fallback, save, delete, stage), `ILanguageManager` with the
-  language rules, `ILanguageCatalog` with a configurable expiry, `ILanguageContext`, and the
-  `ITranslationStore` / `ILanguageStore` / `IEntityKeyAccessor` extension points.
-- `DotNetBoost.MultiLingual.EntityFrameworkCore`: `ApplyMultiLingual()`, save and
-  materialization interceptors, `ITranslationHydrator` and the `ToLocalizedListAsync` family.
-- `DotNetBoost.MultiLingual.API`: `UseMultiLingual()` middleware (adds `Content-Language` and
-  `Vary: Accept-Language`), `MapLanguageEndpoints()`, `MultiLingualExceptionHandler`, and the
-  `AddAcceptLanguageParameter()` OpenAPI transformer (net10.0).
-- Multi-targets `net8.0` and `net10.0`.
-- `[MultiLingual(EntityName = "...")]` and `[MultiLingualEntity("...")]` fix the name stored in
-  `Translation.EntityName`, so a class can be renamed without orphaning its translations.
-  Without either, the class name is used, as before. `Build()` now fails when two unrelated
-  types would share a name (compared case-insensitively), instead of letting them read and
-  overwrite each other's rows; a derived type inheriting its base's name is allowed.
+| Package | Contents |
+|---|---|
+| `DotNetBoost.MultiLingual.Core` | Attributes, the engine and its contracts. No EF Core or ASP.NET Core dependency. |
+| `DotNetBoost.MultiLingual.EntityFrameworkCore` | The EF Core provider: mapping, interceptors, translated queries. |
+| `DotNetBoost.MultiLingual.API` | `Accept-Language` middleware, language endpoints, problem details, OpenAPI. |
 
-- Retrying execution strategies (`EnableRetryOnFailure`) work with a plain `SaveChanges`. The
-  interceptor's transaction used to make every save of a translatable entity throw under one;
-  the save now runs inside the strategy — transaction, entity, translations and commit replayed
-  together on a transient failure, with the change tracker restored between attempts.
-- `ITranslationWriter.CompleteWrites`, split out of `WriteAsync`, so a provider that commits
-  after writing can record the values as stored only once the commit succeeds.
+All three target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL and SQLite.
 
-- `SynchronizeLanguagesThroughDistributedCache()` lets every instance of an application see a
-  language change within seconds (5 by default) instead of when its cache expires, through any
-  `IDistributedCache` the instances share. Each instance reads one small entry per interval and
-  reloads the list only when it changed; an unreachable cache is logged and tolerated.
-  `ILanguageChangeSignal` and `UseLanguageChangeSignal<T>()` plug in other backends. Adds a
-  `Microsoft.Extensions.Caching.Abstractions` reference to `DotNetBoost.MultiLingual.Core`.
+### Declaring translatable content
+- `[MultiLingual]` on a class (every string property) or on individual properties, with
+  `[NotMultiLingual]` to opt one out.
+- `[MultiLingualEntity("name")]` or `[MultiLingual(EntityName = "name")]` fixes the name translations
+  are stored under, so a class can be renamed without losing them.
+- Mistakes fail at startup or on first use, not in stored data: invalid declarations, two entities
+  sharing a name (internal types included), mappings that disagree with the configured mode, and
+  keys longer than the 64 characters a translation key holds.
 
-- `ITranslationManager.Clear(entity, languageCode, params propertyNames)` removes a stored
-  translation on the next save. Assigning `null` to a property still means "not supplied".
-- `WhereTranslation`, `OrderByTranslation`, `OrderByTranslationDescending`, `ThenByTranslation`
-  and `ThenByTranslationDescending` filter and sort EF Core queries on translated text in the
-  database, following the same fallback chain as reads.
-- A write for a key longer than `EntityKey.MaxLength` (64) is refused with a message naming the
-  entity, instead of failing in the database — or, on SQLite, being stored untruncated.
-- The integration tests run on net8.0 as well as net10.0, against EF Core 8's SQL Server and
-  PostgreSQL providers.
+### Two storage modes
+- **Default:** every language, including the default, lives in one `Translations` table; translatable
+  properties have no column.
+- **Base language** (`AddMultiLingual(o => o.BaseLanguage = "en")`): one language stays in each
+  entity's own columns — readable in any SQL client, adoptable on a database that already has them —
+  and every other language lives in `Translations`, falling back to the column.
 
-- `SelectTranslated(db, selector)` projects EF Core queries with every translatable property in
-  the selector — including through navigations and nested collections — read in the current
-  language, by the same SQL as `WhereTranslation`. A plain `Select` could not: in the default
-  mode it silently projected `null`, and in base-language mode it always read the base column.
-- In the default mode, a query that reads a translatable property directly is refused with an
-  error that names the property and the helpers, instead of EF projecting `null` (in a `Select`)
-  or failing with a generic "could not be translated" (in a `Where` or `OrderBy`).
+### Reading
+- `ToLocalizedListAsync` / `FirstLocalizedOrDefaultAsync` / `SingleLocalizedOrDefaultAsync` fill in
+  every translatable property — navigations included — in one extra query per entity type, in the
+  request's language, falling back to the default language (and in base-language mode to the column).
+- Synchronous versions (`ToLocalizedList`, …) that never block on asynchronous work.
 
-- `ApplyMultiLingual()` validates every `[MultiLingual]` entity in the EF model when the model is
-  built — declarations and entity-name clashes — covering the internal entity types that
-  `Build()`'s scan of public types cannot see.
+### Querying on translated text
+- `SelectTranslated(db, p => new Dto { Name = p.Name, Category = p.Category!.Name })` projects in the
+  request's language, through navigations and nested collections.
+- `WhereTranslation` and `OrderByTranslation` / `ThenByTranslation` (and `…Descending`) filter and
+  sort in the database, on the value a read would show.
+- In the default mode, a plain query that reads a translatable property is refused with an error
+  naming the property and these helpers, instead of silently returning `null`.
 
-- `PurgeOrphanedTranslationsAsync()` (and a synchronous version) deletes translation rows whose
-  entity no longer exists — left behind by `ExecuteDelete`, a database cascade over unloaded rows,
-  or raw SQL, none of which pass through `SaveChanges`. One set-based `DELETE … WHERE NOT EXISTS`
-  per entity type; rows under entity names the model does not know are left alone. The
-  integration tests now also run on a case-sensitive SQL Server database, where a key compared in
-  the wrong case would have made live rows look orphaned.
+### Writing
+- Assign the property and call `SaveChanges`: the value is stored for the request's language, and
+  other languages are untouched. A `null` means "not supplied"; values that came from a fallback are
+  never written back as a translation.
+- `ITranslationManager.Stage` writes other languages in the same save; `ITranslationManager.Clear`
+  removes a stored translation.
+- An entity and its translations are saved atomically, including under retrying execution strategies
+  (`EnableRetryOnFailure`). A failed save leaves the change tracker as it was, so it can be retried.
+- Synchronous `SaveChanges` is supported and never blocks on asynchronous work.
 
-- Synchronous reads: `ToLocalizedList`, `FirstLocalizedOrDefault` and `SingleLocalizedOrDefault`,
-  over new `ITranslationHydrator.HydratePending`, `ITranslationManager.Hydrate` and
-  `ITranslationStore.GetMany`. Like a synchronous save, they never block on asynchronous work
-  (`GetMany` has a default implementation that does, for existing custom stores; the built-in
-  stores override it).
-- `UnknownLanguageException`, a `LanguageNotFoundException` for a request that uses a language
-  that does not exist — values staged in it, or `languageCode` passed to `HydrateAsync` or a query
-  helper. The API maps it to 400, where its base type (the addressed language resource is
-  missing) stays 404; code catching `LanguageNotFoundException` is unaffected.
+### Languages and HTTP
+- `ILanguageManager` enforces the rules: validated, normalised and immutable codes; exactly one active
+  default; a language with translations cannot be deleted until they are purged.
+- `UseMultiLingual()` resolves `Accept-Language` (quality-weighted, with fallback to the default) and
+  sets `Content-Language` and `Vary: Accept-Language`.
+- `MapLanguageEndpoints()` for managing languages; `MultiLingualExceptionHandler` answers the
+  library's exceptions with problem details (a missing language resource is a 404, a request that
+  uses an unknown language a 400, a broken rule a 409).
+- `AddAcceptLanguageParameter()` documents `Accept-Language` in OpenAPI (net10.0).
 
-### Changed (relative to the prototype)
-- The engine has two faces. `ITranslationManager` is for application code — hydrate, read,
-  stage, clear, and save or delete without a change tracker. `ITranslationWriter` holds the steps
-  a storage provider performs around a save — `CaptureValues`, `WriteAsync` / `Write`,
-  `CompleteWrites`, `DeleteEntitiesAsync` / `DeleteEntities`, `WithStore` — so the application
-  interface stays small and can grow without breaking implementers. One scoped instance backs
-  both.
-- A translation row whose value is `null` is removed by the store instead of stored, so a
-  cleared translation leaves nothing behind. Part of the `ITranslationStore.UpsertManyAsync`
-  contract; the store contract tests check it.
-- Translations reference languages by **code** rather than a numeric id, and use the natural
-  composite key instead of a surrogate `Id`. Language endpoints are addressed by code.
-- Language codes are immutable once created.
-- Setting only a translatable property on a tracked entity is saved without marking the entity
-  `Modified` by hand; unchanged real translations are not rewritten.
+### Running several instances
+- `SynchronizeLanguagesThroughDistributedCache()` shares language changes between instances through
+  any `IDistributedCache` (Redis, SQL Server, …), so every instance sees one within seconds.
 
-### Fixed (relative to the prototype)
-- A materialization interceptor instance per request made EF Core build a new internal service
-  provider per request, failing with `ManyServiceProvidersCreatedWarning` after twenty requests.
-- A default language could be created inactive.
-- A value assigned to a translatable property after loading could be overwritten by a later
-  localized query in the same scope: the entity stayed queued for hydration, the query drained
-  the queue, and the save that followed found nothing to write. Entities whose translatable
-  values changed since materialization are now left out of hydration.
-- A translation write that failed after the primary save left the change tracker claiming
-  everything was saved — entities `Unchanged`, carrying keys the rollback had un-issued — so a
-  retry wrote nothing, or wrote translations for rows that did not exist. On a relational
-  provider the change tracker is now restored to its pre-save state, as EF does when its own save
-  fails. The same restore keeps base-language values the caller assigned when the primary save
-  itself fails.
-- A failed commit after a successful translation write lost the translations on retry: the
-  write had already cleared the staged values and recorded the authored ones as stored, so the
-  retry found nothing to write. The EF Core interceptor now completes writes only after the
-  commit succeeds.
-- A synchronous `SaveChanges` blocked on the interceptor's async work, which could deadlock
-  under a single-threaded synchronization context (WPF, WinForms). It is now synchronous all
-  the way down, through new synchronous members: `ITranslationWriter.Write` and
-  `DeleteEntities`, `ILanguageCatalog.GetAll`, `ITranslationStore.UpsertMany` and
-  `DeleteEntities`, and `ILanguageStore.GetAll`. The store and catalog members have default
-  implementations, so existing custom stores keep compiling; those defaults block on the async
-  members, and the built-in stores override them.
-- `MaterializedEntityRegistry` stopped recording entities past its 20,000 capacity without a
-  word, so they were served with `null` translations. It now logs a warning when it fills up,
-  and the next hydration throws rather than returning a partial set.
+### Maintenance
+- `PurgeOrphanedTranslationsAsync()` removes translations left behind by deletes that bypass
+  `SaveChanges` — `ExecuteDelete`, database cascades, raw SQL.
+
+### Extending
+- `ITranslationStore` and `ILanguageStore` for other backends, with contract test suites a provider
+  must pass; `ITranslationWriter` for the steps of a save; `IEntityKeyAccessor` for key discovery;
+  `ILanguageChangeSignal` for other ways to share language changes. See `docs/adding-a-provider.md`.
+
+### Known limitations
+Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
+The README lists them all, with the reasons.
+
+[1.0.0-preview.1]: https://github.com/dotnetboost/multilingual/releases/tag/v1.0.0-preview.1
