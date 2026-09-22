@@ -20,6 +20,7 @@ public static class MultiLingualProblems
         LanguageConflictException    => StatusCodes.Status409Conflict,
         NoLanguageConfiguredException => StatusCodes.Status409Conflict,
         BaseLanguageRequiredException => StatusCodes.Status409Conflict,
+        BaseLanguageNotTranslatableException => StatusCodes.Status409Conflict,
         _                            => StatusCodes.Status400BadRequest
     };
 
@@ -35,6 +36,7 @@ public static class MultiLingualProblems
     ///   <item><c>LanguageNotFound.Detail</c>: <c>{0}</c> code.</item>
     ///   <item><c>NoLanguageConfigured.Detail</c>: none.</item>
     ///   <item><c>BaseLanguageRequired.Detail</c>: <c>{0}</c> entity, <c>{1}</c> base language, <c>{2}</c> requested language.</item>
+    ///   <item><c>BaseLanguageNotTranslatable.Detail</c>: <c>{0}</c> base language, <c>{1}</c> entity.</item>
     /// </list>
     /// The other exceptions describe many different rules in one type, so only their title is
     /// localizable; the detail stays the exception's message.
@@ -53,6 +55,7 @@ public static class MultiLingualProblems
             LanguageNotFoundException    => "Language not found",
             InvalidLanguageException     => "Invalid language",
             BaseLanguageRequiredException => "Base language required",
+            BaseLanguageNotTranslatableException => "Base language is not a translation",
             _                            => "Conflict"
         };
 
@@ -79,6 +82,7 @@ public static class MultiLingualProblems
         LanguageNotFoundException e     => [e.Code],
         NoLanguageConfiguredException   => [],
         BaseLanguageRequiredException e => [e.EntityName, e.BaseLanguage, e.RequestedLanguage],
+        BaseLanguageNotTranslatableException e => [e.BaseLanguage, e.EntityName],
         _                               => null
     };
 

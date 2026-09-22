@@ -48,6 +48,9 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddScoped<ITranslationWriter>(sp => sp.GetRequiredService<TranslationManager>());
             services.TryAddScoped<ILanguageManager, LanguageManager>();
 
+            // The one service application code injects; a front over everything above.
+            services.TryAddScoped<IMultiLingualManager, MultiLingualManager>();
+
             var builder = new MultiLingualBuilder(services);
             configure(builder.Options);
             return builder;

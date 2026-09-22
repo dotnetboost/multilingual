@@ -172,8 +172,8 @@ public sealed class SyncSaveChangesTests
         ShopProduct? first = null;
         var (finished, error, posted) = RunOnBlockedUiThread(() =>
         {
-            products = scope.Db.Products.AsNoTracking().ToLocalizedList(scope.Hydrator);
-            first    = scope.Db.Products.AsNoTracking().FirstLocalizedOrDefault(scope.Hydrator);
+            products = scope.Db.Products.AsNoTracking().ToLocalizedList();
+            first    = scope.Db.Products.AsNoTracking().FirstLocalizedOrDefault();
         });
 
         Assert.True(finished, "ToLocalizedList deadlocked waiting for work posted to the UI thread.");

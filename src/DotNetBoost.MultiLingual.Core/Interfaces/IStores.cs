@@ -5,7 +5,7 @@ namespace DotNetBoost.MultiLingual.Core.Interfaces;
 /// <summary>
 /// Persistence contract for translation rows. Implement this (with <see cref="ILanguageStore"/>)
 /// to add a backend. Implementations are deliberately dumb: validation, fallback and
-/// change detection all live in <see cref="ITranslationManager"/>.
+/// change detection all live in the engine behind <see cref="IMultiLingualManager"/>.
 /// <para>
 /// Language codes passed in are canonical (as stored on <see cref="Language.Code"/>), so
 /// implementations may compare them ordinally.
@@ -69,7 +69,7 @@ public interface ITranslationStore
 
 /// <summary>
 /// Persistence contract for the language list. Business rules (the first language becomes the
-/// default, the default cannot be deleted, …) live in <see cref="ILanguageManager"/>; the store
+/// default, the default cannot be deleted, …) live in <see cref="IMultiLingualManager.Languages"/>; the store
 /// only has to keep the "exactly one default" invariant atomic where it spans several rows.
 /// </summary>
 public interface ILanguageStore

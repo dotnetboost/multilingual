@@ -120,8 +120,6 @@ internal sealed class BaseShopScope(AsyncServiceScope scope) : IAsyncDisposable
 
     public BaseShopDbContext Db => Get<BaseShopDbContext>();
 
-    public ITranslationHydrator Hydrator => Get<ITranslationHydrator>();
-
     public ITranslationManager Translations => Get<ITranslationManager>();
 
     public ValueTask DisposeAsync() => scope.DisposeAsync();
@@ -250,7 +248,7 @@ public sealed class BaseLanguageTests
         var id = await shop.CreateProductAsync("LAPTOP", "Laptop");
 
         await using var scope = await shop.ScopeInAsync("en");
-        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(scope.Hydrator);
+        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
 
         Assert.Equal("Laptop", product!.Name);
     }
@@ -269,7 +267,7 @@ public sealed class BaseLanguageTests
         }
 
         await using var read = await shop.ScopeInAsync("ar");
-        var product = await read.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(read.Hydrator);
+        var product = await read.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
 
         Assert.Equal("حاسوب", product!.Name);
     }
@@ -281,7 +279,7 @@ public sealed class BaseLanguageTests
         var id = await shop.CreateProductAsync("LAPTOP", "Laptop", "Light");
 
         await using var scope = await shop.ScopeInAsync("fr");
-        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(scope.Hydrator);
+        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
 
         Assert.Equal("Laptop", product!.Name);
         Assert.Equal("Light", product.Description);
@@ -295,7 +293,7 @@ public sealed class BaseLanguageTests
 
         await using (var scope = await shop.ScopeInAsync("fr"))
         {
-            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(scope.Hydrator);
+            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
             Assert.Equal("Laptop", product!.Name);   // the base column, as a fallback
 
             product.Price = 20;                       // touch something else entirely
@@ -369,14 +367,14 @@ public sealed class BaseLanguageTests
         // English still reads English, even though Arabic is now the default.
         await using (var scope = await shop.ScopeInAsync("en"))
         {
-            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(scope.Hydrator);
+            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
             Assert.Equal("Laptop", product!.Name);
         }
 
         // French has no translation, so it takes the new default before the base column.
         await using (var scope = await shop.ScopeInAsync("fr"))
         {
-            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(scope.Hydrator);
+            var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
             Assert.Equal("حاسوب", product!.Name);
         }
     }

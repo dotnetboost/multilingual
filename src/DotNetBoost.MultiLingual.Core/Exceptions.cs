@@ -115,3 +115,26 @@ public sealed class BaseLanguageRequiredException : MultiLingualException
         RequestedLanguage = requestedLanguage;
     }
 }
+
+/// <summary>
+/// A translation was set or cleared in the base language. Its values are the entity's own
+/// columns, not a translation, so they are changed by assigning the properties and saving the
+/// entity. Thrown by <see cref="Interfaces.ITranslationAccessor{T}"/> before anything is queued.
+/// </summary>
+public sealed class BaseLanguageNotTranslatableException : MultiLingualException
+{
+    /// <summary>The name translations of the entity are stored under.</summary>
+    public string EntityName { get; }
+
+    /// <summary>The base language that was named.</summary>
+    public string BaseLanguage { get; }
+
+    /// <summary>Creates the exception for a translation named in the base language.</summary>
+    public BaseLanguageNotTranslatableException(string entityName, string baseLanguage)
+        : base($"'{baseLanguage}' is the base language: '{entityName}' stores its values in its own " +
+               "columns, so they are not a translation. Assign the properties and save the entity instead.")
+    {
+        EntityName   = entityName;
+        BaseLanguage = baseLanguage;
+    }
+}

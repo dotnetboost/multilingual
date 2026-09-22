@@ -5,8 +5,8 @@ namespace DotNetBoost.MultiLingual.Core.Interfaces;
 /// its cached copy within seconds instead of waiting out <see cref="MultiLingualOptions.LanguageCacheDuration"/>.
 ///
 /// <para>
-/// A version token in some store every instance can reach: <see cref="ILanguageManager"/> calls
-/// <see cref="SignalChangeAsync"/> after each write, and the language catalog compares
+/// A version token in some store every instance can reach: every language write through
+/// <see cref="IMultiLingualManager.Languages"/> calls <see cref="SignalChangeAsync"/>, and the language catalog compares
 /// <see cref="GetVersionAsync"/> against the version its copy was loaded with, at most once per
 /// <see cref="MultiLingualOptions.LanguageChangeCheckInterval"/>. The built-in implementation uses
 /// <c>IDistributedCache</c> (<c>SynchronizeLanguagesThroughDistributedCache()</c>); register your

@@ -128,6 +128,8 @@ internal sealed class TestScope(AsyncServiceScope scope) : IAsyncDisposable
 {
     public T Get<T>() where T : notnull => scope.ServiceProvider.GetRequiredService<T>();
 
+    public IMultiLingualManager MultiLingual => Get<IMultiLingualManager>();
+
     public ITranslationManager Translations => Get<ITranslationManager>();
 
     public ITranslationWriter Writer => Get<ITranslationWriter>();

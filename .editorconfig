@@ -27,3 +27,9 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+# CA1716: `IMultiLingualManager.For(...)` and `ITranslationAccessor<T>.Set(...)` mirror
+# DotNetBoost.Settings' `ISettingManager.For<T>()` / `SetAsync(...)`, so both libraries read the
+# same way. They collide with VB keywords only, as they do in Settings.
+[*.cs]
+dotnet_diagnostic.CA1716.severity = none

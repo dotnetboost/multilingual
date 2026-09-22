@@ -164,7 +164,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseRouting();
 
-// Resolves Accept-Language into the scoped ILanguageContext that the interceptors and the
+// Resolves Accept-Language into the current language (IMultiLingualManager.CurrentLanguage) that the interceptors and the
 // localizer read, and sets CultureInfo.CurrentUICulture to match.
 app.UseMultiLingual();
 
@@ -174,12 +174,12 @@ app.MapControllers();
 app.MapLanguageEndpoints();
 
 // Convenience: report the language the API resolved for this request.
-app.MapGet("/api/current-language", (ILanguageContext language) => Results.Ok(new
+app.MapGet("/api/current-language", (IMultiLingualManager multiLingual) => Results.Ok(new
 {
-    resolved = language.Current.Code,
-    direction = language.Current.Direction == DotNetBoost.MultiLingual.Core.Models.TextDirection.Rtl ? "rtl" : "ltr",
-    defaultLanguage = language.DefaultLanguage.Code,
-    requestedLanguageHonoured = language.WasRequestedLanguageHonoured
+    resolved = multiLingual.CurrentLanguage.Code,
+    direction = multiLingual.CurrentLanguage.Direction == DotNetBoost.MultiLingual.Core.Models.TextDirection.Rtl ? "rtl" : "ltr",
+    defaultLanguage = multiLingual.DefaultLanguage.Code,
+    requestedLanguageHonoured = multiLingual.WasRequestedLanguageHonoured
 }));
 
 var applyMigrations = builder.Configuration.GetValue("Database:UseMigrations", false);

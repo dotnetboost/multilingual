@@ -154,5 +154,7 @@ internal sealed class ShopScope(AsyncServiceScope scope) : IAsyncDisposable
 
     public ITranslationManager Translations => Get<ITranslationManager>();
 
+    public IMultiLingualManager MultiLingual => Get<IMultiLingualManager>();
+
     public ValueTask DisposeAsync() => scope.DisposeAsync();
 }

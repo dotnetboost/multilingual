@@ -32,7 +32,7 @@ adoptable on a database that already has `Name` and `Description` full of data.
 
 | Package | What it is |
 |---|---|
-| `DotNetBoost.MultiLingual.Core` | The provider-neutral engine: attributes, `ITranslationManager` (for applications) and `ITranslationWriter` (for storage providers), `ILanguageManager`, the language catalog, and the store contracts `ITranslationStore` / `ILanguageStore`. No EF Core, no ASP.NET Core. |
+| `DotNetBoost.MultiLingual.Core` | The provider-neutral engine: attributes, `IMultiLingualManager` — the one service applications inject — and, for storage providers, `ITranslationWriter` and the store contracts `ITranslationStore` / `ILanguageStore`. No EF Core, no ASP.NET Core. |
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | EF Core provider. Maps translatable properties according to the configured mode and reads/writes them transparently through interceptors. SQL Server, PostgreSQL, SQLite. |
 | `DotNetBoost.MultiLingual.API` | ASP.NET Core: `Accept-Language` middleware, language management endpoints, ProblemDetails mapping, and (net10.0) an OpenAPI transformer. |
 | `DotNetBoost.MultiLingual.Localization` | `IStringLocalizer` for the application's own messages, read from JSON files in the same language as the content. See [localized messages](#localized-messages). |
@@ -72,7 +72,7 @@ builder.Services.AddOpenApi(o => o.AddAcceptLanguageParameter());   // optional,
 
 var app = builder.Build();
 app.UseExceptionHandler();
-app.UseMultiLingual();                             // Accept-Language -> ILanguageContext
+app.UseMultiLingual();                             // Accept-Language -> the current language
 app.MapLanguageEndpoints().RequireAuthorization("admin");
 ```
 
@@ -94,7 +94,7 @@ Controllers then read and write `Product.Name` like any other property:
 
 ```csharp
 // Read: one query for the products, one for all their translations.
-var products = await db.Products.AsNoTracking().ToLocalizedListAsync(hydrator, ct);
+var products = await db.Products.AsNoTracking().ToLocalizedListAsync(ct);
 
 // Write: assign only what the caller supplied, and Name is stored for the request's language.
 // Other languages are untouched. Assigning null would mean "not supplied" in the default mode,
@@ -104,6 +104,52 @@ if (request.Name is not null)
 
 await db.SaveChangesAsync(ct);
 ```
+
+## Using it: `IMultiLingualManager`
+
+Everything else goes through one service. Inject `IMultiLingualManager` anywhere — like
+`ISettingManager` in DotNetBoost.Settings, it is the only thing application code needs:
+
+```csharp
+public sealed class ProductsController(
+    AppDbContext db,
+    IMultiLingualManager multiLingual,
+    IStringLocalizer<SharedResource> localizer) : ControllerBase
+{
+    [HttpDelete("{id:int}/translations/{languageCode}")]
+    public async Task<IActionResult> ClearTranslation(int id, string languageCode, CancellationToken ct)
+    {
+        var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (product is null)
+            return NotFound();
+
+        multiLingual.For(product).Clear(languageCode);   // unknown → 404, base language → 409
+        await db.SaveChangesAsync(ct);
+        return Ok(localizer["Products.TranslationCleared", product.Sku, languageCode]);
+    }
+}
+```
+
+| You want to… | Call |
+|---|---|
+| know the request's language | `multiLingual.CurrentLanguage`, `DefaultLanguage`, `WasRequestedLanguageHonoured` |
+| set it outside a request (jobs, seeders) | `await multiLingual.UseLanguageAsync("ar")` |
+| read every stored language of an entity | `await multiLingual.For(product).GetAllAsync()` |
+| add or change a translation in another language | `multiLingual.For(product).Set("fr", p => p.Name, "Chaise")` |
+| remove a translation | `multiLingual.For(product).Clear("fr")` — or `Clear("fr", p => p.Name)` |
+| find or administer languages | `multiLingual.Languages.FindAsync("ar")`, `CreateAsync(…)`, `SetDefaultAsync(…)`, `IsBaseLanguage(…)`, … |
+| fill translated properties yourself (Dapper, MongoDB) | `await multiLingual.LocalizeAsync(products)` |
+| save / delete translations yourself (Dapper, MongoDB) | `await multiLingual.For(product).SaveAsync()` / `DeleteAsync()` |
+
+`Set` and `Clear` only queue the change; it is written by the next `SaveChanges` (or
+`For(…).SaveAsync()` without EF Core), in the same transaction as the entity. They check the
+language straight away, so a mistake surfaces where it was made: an unknown code throws
+`LanguageNotFoundException`, the base language `BaseLanguageNotTranslatableException`.
+`MultiLingualExceptionHandler` turns both into problem details, so a controller needs no checks
+of its own.
+
+The application's own messages come from the standard `IStringLocalizer<T>` — see
+[localized messages](#localized-messages).
 
 `samples/SampleApp` is a complete, runnable version of this — PostgreSQL, Scalar UI, seeded data,
 and configured in base-language mode so `Products.Name` is a real column you can see in any SQL
@@ -167,8 +213,8 @@ To remove a stored translation, say so explicitly — the row is deleted on the 
 reads fall back as for any missing value:
 
 ```csharp
-translations.Clear(product, "fr", nameof(Product.Name));   // one property
-translations.Clear(product, "fr");                         // every translatable property
+multiLingual.For(product).Clear("fr", p => p.Name);   // one property
+multiLingual.For(product).Clear("fr");                // every translatable property
 await db.SaveChangesAsync();
 ```
 
@@ -196,7 +242,7 @@ var page = await db.Products
     .WhereTranslation(db, p => p.Name, name => name!.Contains(term))
     .OrderByTranslation(db, p => p.Name)          // also …Descending, ThenBy…
     .Skip(skip).Take(take)
-    .ToLocalizedListAsync(hydrator, ct);
+    .ToLocalizedListAsync(ct);
 ```
 
 Pass the same `db` the query runs on; the language is the current one unless you pass
@@ -216,7 +262,9 @@ with a base language configured, leaves them mapped. The save interceptor captur
 transaction — opening one if the caller has not. It also inspects `Unchanged` entries, because
 assigning only an unmapped property does not make EF consider the entity modified. The
 materialization interceptor records loaded entities (including ones reached through `Include`) so
-`ITranslationHydrator` can fill them all in one round trip. Synchronous code has the same helpers
+`ToLocalizedListAsync` can fill them all in one round trip. It also tells the running query which
+context it materialized for, which is why the localized helpers need neither the context nor any
+other argument. Synchronous code has the same helpers
 without the suffix — `ToLocalizedList`, `FirstLocalizedOrDefault`, `SingleLocalizedOrDefault` —
 and, like a synchronous `SaveChanges`, they never block on asynchronous work.
 
@@ -268,7 +316,8 @@ means migrating content between columns and rows, so treat it as a schema change
    no language resolved — seeders, background jobs — are exempt.
 2. **The base language cannot be deleted or deactivated.**
 3. **The base language is never a translation row.** It has exactly one home, so the two cannot
-   drift; `Stage(entity, baseLanguage, …)` is refused for the same reason.
+   drift; `For(entity).Set(baseLanguage, …)` and `Clear(baseLanguage)` are refused with
+   `BaseLanguageNotTranslatableException` (HTTP 409) for the same reason.
 
 **Writing in a language other than the base one.** Assign only what the caller actually supplied:
 
@@ -331,7 +380,7 @@ the next generated migration.
 
 ## Languages
 
-`ILanguageManager` (and the endpoints over it) enforce the rules: codes are validated and
+`multiLingual.Languages` (and the endpoints over it) enforce the rules: codes are validated and
 normalised (`pt-br` → `pt-BR`), the first language becomes the default, there is always exactly
 one active default, and a language that still has translations cannot be deleted — purge it
 first, or deactivate it. A configured base language can be neither deleted nor deactivated, even
@@ -339,8 +388,8 @@ once it is no longer the default.
 
 `MultiLingualExceptionHandler` answers the library's exceptions with problem details. A language
 the URL addresses that does not exist (`GET /api/languages/xx`) is a 404; a request that merely
-*uses* a language that does not exist — values staged in it, or `languageCode` passed to a query
-helper — is a 400 (`UnknownLanguageException`), since what it was about does exist.
+*uses* a language that does not exist — `languageCode` passed to a query helper, say — is a 400
+(`UnknownLanguageException`), since what it was about does exist.
 
 ```
 GET    /api/languages                      list, default first
@@ -353,7 +402,7 @@ DELETE /api/languages/{code}/translations  purge
 ```
 
 **Several instances.** Each instance caches the language list (5 minutes by default,
-`WithLanguageCacheDuration()`). A change through `ILanguageManager` refreshes the instance that
+`WithLanguageCacheDuration()`). A change through `multiLingual.Languages` refreshes the instance that
 made it at once, but the others only see it when their cache expires. To have every instance
 pick it up within seconds, share a change signal through a distributed cache you already run:
 
@@ -371,23 +420,23 @@ changed. If the cache is unreachable, instances keep serving their cached list a
 and the cache expiry still applies. For another backend, implement `ILanguageChangeSignal` and
 register it with `UseLanguageChangeSignal<T>()`.
 
-Outside a request (jobs, seeders), set the language yourself — or stage values per language:
+Outside a request (jobs, seeders), set the language yourself — or set values per language:
 
 ```csharp
-await languageContext.UseAsync("ar");
+await multiLingual.UseLanguageAsync("ar");
 
-translations.Stage(product, "fr", new Dictionary<string, string?> { ["Name"] = "Portable" });
-await db.SaveChangesAsync();   // writes the staged French alongside everything else
+multiLingual.For(product).Set("fr", p => p.Name, "Portable");
+await db.SaveChangesAsync();   // writes the French alongside everything else
 ```
 
-In base-language mode a seeder assigns the base language to the properties and stages only the
-others — staging the base language is refused, because the properties are already its one home.
+In base-language mode a seeder assigns the base language to the properties and sets only the
+others — setting the base language is refused, because the properties are already its one home.
 Seeding needs no resolved language: with none, the "create in the base language" rule does not
 apply, since there is no `Accept-Language` to be wrong about.
 
 ```csharp
 var product = new Product { Sku = "LAPTOP-14", Name = "14-inch Laptop" };   // en, the column
-translations.Stage(product, "ar", new Dictionary<string, string?> { ["Name"] = "حاسوب محمول" });
+multiLingual.For(product).Set("ar", p => p.Name, "حاسوب محمول");
 db.Products.Add(product);
 await db.SaveChangesAsync();
 ```
@@ -442,8 +491,8 @@ public sealed class ProductsController(IStringLocalizer<SharedResource> localize
 - `AddJsonLocalization()` replaces the `.resx` localizer from `AddLocalization()`, whichever is called
   first.
 
-**Which language.** The `IStringLocalizer<T>` you inject reads the language from the scope's
-`ILanguageContext`, exactly like the interceptors. That matters in two places where .NET's ambient
+**Which language.** The `IStringLocalizer<T>` you inject reads the scope's current language
+(`IMultiLingualManager.CurrentLanguage`), exactly like the interceptors. That matters in two places where .NET's ambient
 `CultureInfo.CurrentUICulture` would be wrong:
 
 - **Exception handlers** run outside `UseMultiLingual()`, after the culture it set is gone. They are
@@ -455,11 +504,11 @@ public sealed class ProductsController(IStringLocalizer<SharedResource> localize
   var localizer = httpContext.RequestServices.GetRequiredService<IStringLocalizer<SharedResource>>();
   ```
 
-- **Background jobs** set a language with `UseAsync`, and localizers resolved from that scope follow it:
+- **Background jobs** set a language with `UseLanguageAsync`, and localizers resolved from that scope follow it:
 
   ```csharp
   await using var scope = services.CreateAsyncScope();
-  await scope.ServiceProvider.GetRequiredService<ILanguageContext>().UseAsync("ar");
+  await scope.ServiceProvider.GetRequiredService<IMultiLingualManager>().UseLanguageAsync("ar");
   var localizer = scope.ServiceProvider.GetRequiredService<IStringLocalizer<SharedResource>>();
   ```
 
@@ -468,28 +517,33 @@ validation messages, for instance — are cached for the application's lifetime 
 scope, so they read `CurrentUICulture`. `UseMultiLingual()` sets it to the resolved language for the
 rest of the pipeline; `app.UseMultiLingual(o => o.SetCurrentUICulture = false)` turns that off, and
 `o.SetCurrentCulture = true` sets the formatting culture as well (off by default: it changes how
-numbers and dates are parsed). Anywhere else, `languageContext.ApplyUiCulture()` sets it for the
+numbers and dates are parsed). Anywhere else, `multiLingual.ApplyUiCulture()` sets it for the
 calling method — it is synchronous so that the culture survives it returning.
 
 **The library's own problem details** are looked up in the same files, under
 `MultiLingual.Problems.{Kind}.Title` and `.Detail`, where Kind is the exception name without
 "Exception" (`UnknownLanguage`, `LanguageNotFound`, `InvalidLanguage`, `LanguageConflict`,
-`NoLanguageConfigured`, `BaseLanguageRequired`). Anything left out keeps its English text. Details
+`NoLanguageConfigured`, `BaseLanguageRequired`, `BaseLanguageNotTranslatable`). Anything left out
+keeps its English text. Details
 take the exception's data as arguments — see `MultiLingualProblems.ToProblemDetails`;
 `InvalidLanguage` and `LanguageConflict` cover many rules each, so only their titles are
 translatable. `samples/SampleApp/Resources/ar.json` translates them all.
 
 ## Providers without change tracking
 
-Dapper and MongoDB have no interceptors to hook, so their users call `ITranslationManager`
-directly — reading, saving and deleting translations alongside their own queries:
+Dapper and MongoDB have no interceptors to hook, so their users call the same
+`IMultiLingualManager` explicitly — reading, saving and deleting translations alongside their own
+queries:
 
 ```csharp
 var products = (await connection.QueryAsync<Product>(sql)).ToList();
-await translations.HydrateAsync(products);
+await multiLingual.LocalizeAsync(products);
 
 await connection.ExecuteAsync(insertSql, product);
-await translations.SaveAsync(product);
+await multiLingual.For(product).SaveAsync();
+
+await connection.ExecuteAsync(deleteSql, product);
+await multiLingual.For(product).DeleteAsync();
 ```
 
 In base-language mode such a provider has one extra duty, because it has no change tracker to ask
@@ -497,8 +551,8 @@ which properties a caller touched. Before saving in a language other than the ba
 the ones that still hold the value the row was loaded with:
 
 ```csharp
-translations.MarkAsBaseLanguageValues(product, ["Description"]);   // only Name was edited
-await translations.SaveAsync(product);
+multiLingual.For(product).MarkAsBaseLanguageValues(p => p.Description);   // only Name was edited
+await multiLingual.For(product).SaveAsync();
 ```
 
 Without it, the base-language text read from the row is written back as a translation in whatever

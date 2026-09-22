@@ -79,7 +79,7 @@ internal sealed partial class MaterializedEntityRegistry(ILogger<MaterializedEnt
             throw new InvalidOperationException(
                 $"More than {Capacity} [MultiLingual] entities were materialized since the last hydration, " +
                 "so not all of them can be hydrated. Hydrate in smaller pages, or pass the entities to " +
-                "ITranslationManager.HydrateAsync directly — it has no limit.");
+                "IMultiLingualManager.LocalizeAsync directly — it has no limit.");
         }
 
         if (pending.Length == 0)

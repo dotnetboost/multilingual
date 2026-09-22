@@ -13,7 +13,8 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// materialized entity has them all <c>null</c>. This interceptor does NOT query for their
 /// values inline — a query per row from inside materialization would both re-enter the
 /// context mid-query and be a textbook N+1. It only records the instance;
-/// <see cref="ITranslationHydrator"/> resolves them all in one round trip afterwards.
+/// <see cref="ITranslationHydrator"/> resolves them all in one round trip afterwards, and it
+/// tells an active <see cref="LocalizedRead"/> which context that happened on.
 ///
 /// <para><b>One shared instance.</b> EF Core treats materialization interceptors as
 /// singleton interceptors: the instance is part of the key EF caches its internal service
@@ -38,7 +39,10 @@ internal sealed class MultiLingualMaterializationInterceptor : IMaterializationI
         ArgumentNullException.ThrowIfNull(entity);
 
         if (MultiLingualMetadata.IsMultiLingual(entity.GetType()))
+        {
             _registries.GetValue(materializationData.Context, ResolveRegistry).Register(entity);
+            LocalizedRead.Record(materializationData.Context);
+        }
 
         return entity;
     }

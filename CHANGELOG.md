@@ -21,6 +21,16 @@ All four target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL
 `net8.0` they need only the 8.0 line of `Microsoft.Extensions` (and EF Core 8), so an application
 keeps the versions its runtime ships.
 
+### One service for application code
+- `IMultiLingualManager` is the only service an application injects, in the spirit of
+  DotNetBoost.Settings' `ISettingManager`: `CurrentLanguage` / `UseLanguageAsync`, `Languages` (find
+  and administer), `For(entity)` (read every language, `Set`, `Clear`, and — without EF Core —
+  `SaveAsync` / `DeleteAsync`), and `LocalizeAsync` for providers without a change tracker.
+- `For(entity).Set` / `Clear` check the language at once: an unknown one throws
+  `LanguageNotFoundException` (404), the base language `BaseLanguageNotTranslatableException` (409).
+- The engine services behind it are internal. Storage providers build on the public store contracts
+  and `ITranslationWriter`.
+
 ### Declaring translatable content
 - `[MultiLingual]` on a class (every string property) or on individual properties, with
   `[NotMultiLingual]` to opt one out.
@@ -41,6 +51,8 @@ keeps the versions its runtime ships.
 - `ToLocalizedListAsync` / `FirstLocalizedOrDefaultAsync` / `SingleLocalizedOrDefaultAsync` fill in
   every translatable property — navigations included — in one extra query per entity type, in the
   request's language, falling back to the default language (and in base-language mode to the column).
+- They take no hydrator and no `DbContext`: the materialization interceptor tells the running query
+  which context it read from. `db.Products.Where(…).ToLocalizedListAsync(ct)` is the whole call.
 - Synchronous versions (`ToLocalizedList`, …) that never block on asynchronous work.
 
 ### Querying on translated text
@@ -55,14 +67,14 @@ keeps the versions its runtime ships.
 - Assign the property and call `SaveChanges`: the value is stored for the request's language, and
   other languages are untouched. A `null` means "not supplied"; values that came from a fallback are
   never written back as a translation.
-- `ITranslationManager.Stage` writes other languages in the same save; `ITranslationManager.Clear`
-  removes a stored translation.
+- `multiLingual.For(entity).Set("fr", p => p.Name, …)` writes other languages in the same save;
+  `multiLingual.For(entity).Clear("fr")` removes a stored translation.
 - An entity and its translations are saved atomically, including under retrying execution strategies
   (`EnableRetryOnFailure`). A failed save leaves the change tracker as it was, so it can be retried.
 - Synchronous `SaveChanges` is supported and never blocks on asynchronous work.
 
 ### Languages and HTTP
-- `ILanguageManager` enforces the rules: validated, normalised and immutable codes; exactly one active
+- `multiLingual.Languages` enforces the rules: validated, normalised and immutable codes; exactly one active
   default; a language with translations cannot be deleted until they are purged.
 - `UseMultiLingual()` resolves `Accept-Language` (quality-weighted, with fallback to the default) and
   sets `Content-Language` and `Vary: Accept-Language`.
@@ -71,13 +83,13 @@ keeps the versions its runtime ships.
   uses an unknown language a 400, a broken rule a 409).
 - `AddAcceptLanguageParameter()` documents `Accept-Language` in OpenAPI (net10.0).
 - `UseMultiLingual()` also sets `CultureInfo.CurrentUICulture` to the resolved language (and, opted in
-  with `SetCurrentCulture`, `CurrentCulture`); `ApplyUiCulture()` does the same outside the middleware.
+  with `SetCurrentCulture`, `CurrentCulture`); `multiLingual.ApplyUiCulture()` does the same outside the middleware.
 
 ### Localized messages
 - `AddJsonLocalization()` serves `IStringLocalizer<T>` from `Resources/{language}.json`: nested
   objects become dotted keys, and a message missing in the requested language falls back exactly as
   content does — parent language, default language, then the base language.
-- The injected localizer reads the language from `ILanguageContext`, so it answers in the request's
+- The injected localizer reads the scope's current language, so it answers in the request's
   language in exception handlers and background jobs too; the factory's follows `CurrentUICulture`,
   for framework code such as validation messages.
 - Files are checked at startup and reloaded when they change.

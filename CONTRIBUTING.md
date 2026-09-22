@@ -48,8 +48,12 @@ public member of a shipped package needs XML docs.
 
 - **Core stays provider-neutral.** No EF Core, ASP.NET Core or driver references in
   `DotNetBoost.MultiLingual.Core`. If a provider needs something from the engine, add it to
-  `ITranslationWriter` in provider-neutral terms. `ITranslationManager` is for application code:
-  keep it small, since every member added to it is one more thing users have to understand.
+  `ITranslationWriter` in provider-neutral terms. `IMultiLingualManager` is the only service
+  application code injects: keep it small, since every member added to it is one more thing users
+  have to understand. The engine services behind it (`ILanguageContext`, `ILanguageCatalog`,
+  `ITranslationManager`, `ILanguageManager`) are internal; the sibling packages and tests see them
+  through `InternalsVisibleTo` in `DotNetBoost.MultiLingual.Core.csproj`, and a first-party Dapper
+  or MongoDB package would be added there too.
 - **Stores stay dumb.** Rules go in the managers, so every provider gets them for free.
 - **A store change needs a contract test.** Add it to `TranslationStoreContractTests` /
   `LanguageStoreContractTests`, so every provider — including the in-memory doubles the other

@@ -20,9 +20,7 @@ namespace SampleApp.Controllers;
 [Produces("application/json")]
 public sealed class CategoriesController(
     AppDbContext db,
-    ITranslationHydrator hydrator,
-    ITranslationManager translations,
-    ILanguageContext language,
+    IMultiLingualManager multiLingual,
     IStringLocalizer<SharedResource> localizer)
     : ControllerBase
 {
@@ -34,7 +32,7 @@ public sealed class CategoriesController(
             .AsNoTracking()
             .OrderBy(c => c.DisplayOrder)
             .ThenBy(c => c.Id)
-            .ToLocalizedListAsync(hydrator, ct);
+            .ToLocalizedListAsync(ct);
 
         return Ok(categories.Select(ToResponse).ToList());
     }
@@ -47,7 +45,7 @@ public sealed class CategoriesController(
         var category = await db.Categories
             .AsNoTracking()
             .Where(c => c.Id == id)
-            .FirstLocalizedOrDefaultAsync(hydrator, ct)
+            .FirstLocalizedOrDefaultAsync(ct)
             ?? throw new NotFoundException("Categories.NotFound", id);
 
         return Ok(ToResponse(category));
@@ -61,7 +59,7 @@ public sealed class CategoriesController(
         var category = await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new NotFoundException("Categories.NotFound", id);
 
-        var stored = await translations.GetAllAsync(category, ct);
+        var stored = await multiLingual.For(category).GetAllAsync(ct);
 
         return Ok(new CategoryTranslationsResponse(category.Id, category.Slug, stored));
     }
@@ -142,7 +140,7 @@ public sealed class CategoriesController(
         var saved = await db.Categories
             .AsNoTracking()
             .Where(c => c.Id == id)
-            .FirstLocalizedOrDefaultAsync(hydrator, ct);
+            .FirstLocalizedOrDefaultAsync(ct);
 
         return Ok(ToResponse(saved!) with { Message = localizer["Categories.Updated", saved!.Slug] });
     }
@@ -167,5 +165,5 @@ public sealed class CategoriesController(
             category.DisplayOrder,
             category.Name,
             category.Description,
-            language.Current.Code);
+            multiLingual.CurrentLanguage.Code);
 }

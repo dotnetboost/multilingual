@@ -16,8 +16,7 @@
     "BulkDeleted": "Products deleted: {0}. Translations left behind and removed: {1}.",
     "NotFound": "Product {0} was not found.",
     "SkuExists": "A product with SKU '{0}' already exists.",
-    "UnknownSort": "Unknown sort '{0}'. Use 'id', 'name' or '-name'.",
-    "CannotClearBaseLanguage": "'{0}' is the base language: its text is the product's own columns, not a translation. Change it with PUT instead."
+    "UnknownSort": "Unknown sort '{0}'. Use 'id', 'name' or '-name'."
   },
   "Categories": {
     "Created": "Category '{0}' was created.",
@@ -26,7 +25,13 @@
     "NotFound": "Category {0} was not found.",
     "SlugExists": "A category with slug '{0}' already exists."
   },
-  "Languages": {
-    "NotFound": "Language '{0}' was not found."
+
+  // The library's base-language refusal, worded for this API: English is the base language here.
+  "MultiLingual": {
+    "Problems": {
+      "BaseLanguageNotTranslatable": {
+        "Detail": "'{0}' is the base language: its text is the {1}'s own columns, not a translation. Change it with PUT instead."
+      }
+    }
   }
 }

@@ -157,7 +157,7 @@ public static class TranslatedQueryExtensions
     /// <summary>
     /// The translated value of <paramref name="member"/> on <paramref name="entity"/> — any entity
     /// expression, a lambda parameter or a navigation such as <c>p.Category</c> — following the
-    /// same chain as <see cref="ITranslationManager.HydrateAsync(IEnumerable{object}, CancellationToken)"/>:
+    /// same chain as <see cref="IMultiLingualManager.LocalizeAsync(IEnumerable{object}, CancellationToken)"/>:
     /// <c>COALESCE(translation(requested), translation(default), entity.Column)</c>.
     /// </summary>
     private static Expression Translated(DbContext context, Resolution resolution, Expression entity, MemberInfo member)
@@ -248,7 +248,7 @@ public static class TranslatedQueryExtensions
     }
 
     /// <summary>The request's services — the scoped provider the context's options were built from.</summary>
-    private static IServiceProvider ApplicationServices(DbContext context) =>
+    internal static IServiceProvider ApplicationServices(DbContext context) =>
         context.GetService<IDbContextOptions>().FindExtension<CoreOptionsExtension>()?.ApplicationServiceProvider
         ?? throw new InvalidOperationException(
             $"'{context.GetType().Name}' has no MultiLingual services. Register it with " +

@@ -63,7 +63,7 @@ public sealed class EfCoreInterceptorTests
         await SeedAsync(shop);
         await using var scope = await shop.ScopeInAsync("ar");
 
-        var product = (await scope.Db.Products.AsNoTracking().Include(p => p.Category).ToLocalizedListAsync(scope.Hydrator)).Single();
+        var product = (await scope.Db.Products.AsNoTracking().Include(p => p.Category).ToLocalizedListAsync()).Single();
 
         Assert.Equal("حاسوب", product.Name);            // Arabic exists
         Assert.Equal("Light", product.Description);    // English fallback
@@ -77,7 +77,7 @@ public sealed class EfCoreInterceptorTests
         var id = await SeedAsync(shop);
         await using var scope = await shop.ScopeInAsync("fr");
 
-        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync(scope.Hydrator);
+        var product = await scope.Db.Products.Where(p => p.Id == id).FirstLocalizedOrDefaultAsync();
         Assert.Equal("Laptop", product!.Name);          // English, as a fallback
 
         product.Price = 20;
@@ -185,7 +185,7 @@ public sealed class EfCoreInterceptorTests
         Assert.Equal(("document", id.ToString("D")), (await shop.StoredTranslationsAsync()).Select(t => (t.EntityName, t.EntityId)).Single());
 
         await using var read = await shop.ScopeInAsync("ar");
-        var document = await read.Db.Documents.AsNoTracking().FirstLocalizedOrDefaultAsync(read.Hydrator);
+        var document = await read.Db.Documents.AsNoTracking().FirstLocalizedOrDefaultAsync();
 
         Assert.Equal("دليل", document!.Title);
     }
@@ -213,7 +213,7 @@ public sealed class EfCoreInterceptorTests
         for (var i = 0; i < 30; i++)
         {
             await using var scope = await shop.ScopeInAsync(i % 2 == 0 ? "en" : "ar");
-            var products = await scope.Db.Products.AsNoTracking().ToLocalizedListAsync(scope.Hydrator);
+            var products = await scope.Db.Products.AsNoTracking().ToLocalizedListAsync();
             Assert.NotNull(products.Single().Name);
         }
     }

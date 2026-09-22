@@ -20,7 +20,7 @@ namespace DotNetBoost.MultiLingual.API
     /// </para>
     /// </summary>
     /// <param name="catalog">The language list.</param>
-    public sealed class AcceptLanguageOperationTransformer(ILanguageCatalog catalog) : IOpenApiOperationTransformer
+    internal sealed class AcceptLanguageOperationTransformer(ILanguageCatalog catalog) : IOpenApiOperationTransformer
     {
         /// <inheritdoc/>
         public async Task TransformAsync(

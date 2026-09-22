@@ -60,7 +60,7 @@ public sealed class EfCoreRecoveryTests
         product.Name = "Ordinateur";
 
         // Some unrelated read in the same scope drains the registry.
-        var categories = await scope.Db.Categories.AsNoTracking().ToLocalizedListAsync(scope.Hydrator);
+        var categories = await scope.Db.Categories.AsNoTracking().ToLocalizedListAsync();
         Assert.Equal("Books", Assert.Single(categories).Name);
 
         Assert.Equal("Ordinateur", product.Name);

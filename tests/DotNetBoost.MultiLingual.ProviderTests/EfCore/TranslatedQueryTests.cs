@@ -132,7 +132,7 @@ public sealed class TranslatedQueryTests
         var products = await scope.Db.Products.AsNoTracking()
             .WhereTranslation(scope.Db, p => p.Name, n => n!.EndsWith("er") || n.EndsWith("le"))
             .OrderByTranslation(scope.Db, p => p.Name)
-            .ToLocalizedListAsync(scope.Hydrator);
+            .ToLocalizedListAsync();
 
         Assert.Equal(["Clavier", "Portable"], products.Select(p => p.Name));
     }

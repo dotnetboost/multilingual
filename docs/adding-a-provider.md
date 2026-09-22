@@ -6,7 +6,7 @@ Dapper and MongoDB are planned. This is what either — or any other backend —
 
 `ITranslationStore` and `ILanguageStore` in `DotNetBoost.MultiLingual.Core.Interfaces`. They are
 deliberately dumb: no validation, no fallback, no change detection — that all lives in the
-engine and `ILanguageManager`. What a store does have to get right:
+engine behind `IMultiLingualManager`. What a store does have to get right:
 
 | Rule | Why |
 |---|---|
@@ -48,7 +48,7 @@ If the backend knows entity keys better than the naming convention (`[Key]`, `Id
 
 A provider that saves entities for its users — as the EF Core interceptor does — drives the write
 side of the engine in three steps, resolved from the same scope as the application's
-`ITranslationManager`:
+`IMultiLingualManager`:
 
 | Step | Call | Why then |
 |---|---|---|
@@ -89,20 +89,32 @@ A provider is done when both are green. Then add the project to the pack step in
 
 ## What users of an untracked provider write
 
-There are no interceptors, so application code calls the engine explicitly:
+There are no interceptors, so application code calls the same `IMultiLingualManager` an EF Core
+application injects — just a few more of its members:
 
 ```csharp
 // Read
 var products = (await connection.QueryAsync<Product>(sql)).ToList();
-await translations.HydrateAsync(products);
+await multiLingual.LocalizeAsync(products);
 
 // Write — after the entity's own row exists, so its key does
 await connection.ExecuteAsync(insertSql, product, transaction);
-await translations.SaveAsync(product);
+await multiLingual.For(product).SaveAsync();
 
 // Delete
-await translations.DeleteAsync(product);
+await multiLingual.For(product).DeleteAsync();
 ```
 
 The same rules apply as with EF Core: `null` means "not supplied", untouched fallbacks are never
-promoted, and staged values (`translations.Stage(...)`) are written by the next `SaveAsync`.
+promoted, and values queued with `For(product).Set(...)` / `Clear(...)` are written by the next
+`SaveAsync`. `tests/DotNetBoost.MultiLingual.UnitTests/MultiLingualManagerTests.cs` runs exactly
+this flow over the in-memory stores.
+
+## What a provider package may use
+
+Everything a provider needs is public, so a provider does not have to live in this repository:
+`ITranslationStore`, `ILanguageStore`, `IEntityKeyAccessor`, `ITranslationWriter`,
+`MultiLingualBuilder` / `MultiLingualBuilderGuard`, `MultiLingualMetadata` and the `Translation` /
+`Language` models. The engine services behind `IMultiLingualManager` are internal; a first-party
+provider in this repository that wants them can be added to the `InternalsVisibleTo` list in
+`DotNetBoost.MultiLingual.Core.csproj`, as the EF Core package is.

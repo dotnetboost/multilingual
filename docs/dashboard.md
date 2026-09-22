@@ -40,7 +40,7 @@ Adding a language to the dashboard's text is one file with the shape of `app/loc
 
 A table over `MapLanguageEndpoints()`: add a language (its direction derived from the code unless
 you pick one), rename it, switch it on or off, promote it to default, delete every translation in
-it, or delete it. The dashboard does not second-guess the rules — `ILanguageManager` enforces them,
+it, or delete it. The dashboard does not second-guess the rules — the library enforces them,
 and a refusal comes back as problem details shown in a toast: deleting a language that still has
 translations, for instance, is answered with how many there are and what to do instead. This page
 works against any application that maps the endpoints.

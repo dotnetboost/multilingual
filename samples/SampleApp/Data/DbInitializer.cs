@@ -12,7 +12,8 @@ namespace SampleApp.Data;
 ///
 /// <para>
 /// English is the base language here, so English values are set on the entities themselves and
-/// stored as ordinary columns; Arabic and French are staged and become translation rows. No
+/// stored as ordinary columns; Arabic and French are set through IMultiLingualManager and become
+/// translation rows. No
 /// language is resolved during seeding, which is why the "create only in the base language" rule
 /// does not apply — there is no <c>Accept-Language</c> to be wrong about.
 /// </para>
@@ -25,9 +26,7 @@ public static class DbInitializer
         var provider = scope.ServiceProvider;
 
         var db = provider.GetRequiredService<AppDbContext>();
-        var languages = provider.GetRequiredService<ILanguageManager>();
-        var catalog = provider.GetRequiredService<ILanguageCatalog>();
-        var translations = provider.GetRequiredService<ITranslationManager>();
+        var multiLingual = provider.GetRequiredService<IMultiLingualManager>();
 
         if (applyMigrations)
             await db.Database.MigrateAsync(ct);
@@ -38,35 +37,35 @@ public static class DbInitializer
             return;
 
         // Through the manager, so the rules apply: the first language becomes the default.
-        await languages.CreateAsync(new NewLanguage { Code = "en", Name = "English" }, ct);
-        await languages.CreateAsync(new NewLanguage { Code = "ar", Name = "العربية" }, ct);
-        await languages.CreateAsync(new NewLanguage { Code = "fr", Name = "Français" }, ct);
+        await multiLingual.Languages.CreateAsync(new NewLanguage { Code = "en", Name = "English" }, ct);
+        await multiLingual.Languages.CreateAsync(new NewLanguage { Code = "ar", Name = "العربية" }, ct);
+        await multiLingual.Languages.CreateAsync(new NewLanguage { Code = "fr", Name = "Français" }, ct);
 
         // Warm the catalog now, before any write transaction is open. The save interceptor
         // validates language codes mid-transaction; having them cached keeps it from opening a
         // second connection mid-save (and, on SQLite, against a locked file).
-        await catalog.GetAllAsync(ct);
+        await multiLingual.Languages.GetDefaultAsync(ct);
 
         // English is the BASE language, so its values are assigned to the properties and land in
         // each entity's own table — Categories.Name, Products.Name — as ordinary columns. Every
-        // other language is staged explicitly and becomes a row in Translations.
+        // other language is set explicitly and becomes a row in Translations.
         //
-        // Staging "en" here would be refused: the base language has exactly one home, and these
+        // Setting "en" here would be refused: the base language has exactly one home, and these
         // properties are it.
         var electronics = new Category
         {
             Slug = "electronics", DisplayOrder = 1,
             Name = "Electronics", Description = "Devices, gadgets and accessories."
         };
-        Stage(translations, electronics, "ar", "إلكترونيات", "أجهزة وملحقات إلكترونية.");
-        Stage(translations, electronics, "fr", "Électronique", "Appareils et accessoires.");
+        Translate(multiLingual, electronics, "ar", "إلكترونيات", "أجهزة وملحقات إلكترونية.");
+        Translate(multiLingual, electronics, "fr", "Électronique", "Appareils et accessoires.");
 
         var books = new Category
         {
             Slug = "books", DisplayOrder = 2,
             Name = "Books", Description = "Paper and digital books."
         };
-        Stage(translations, books, "ar", "كتب", "كتب ورقية ورقمية.");
+        Translate(multiLingual, books, "ar", "كتب", "كتب ورقية ورقمية.");
         // Deliberately no French: GET /api/categories with Accept-Language: fr falls back to the
         // English column.
 
@@ -78,15 +77,15 @@ public static class DbInitializer
             Sku = "LAPTOP-14", Price = 1299.00m, CategoryId = electronics.Id,
             Name = "14-inch Laptop", Description = "Lightweight laptop with a 14-inch display."
         };
-        Stage(translations, laptop, "ar", "حاسوب محمول 14 بوصة", "حاسوب محمول خفيف بشاشة 14 بوصة.");
-        Stage(translations, laptop, "fr", "Ordinateur portable 14 pouces", "Portable léger avec écran de 14 pouces.");
+        Translate(multiLingual, laptop, "ar", "حاسوب محمول 14 بوصة", "حاسوب محمول خفيف بشاشة 14 بوصة.");
+        Translate(multiLingual, laptop, "fr", "Ordinateur portable 14 pouces", "Portable léger avec écran de 14 pouces.");
 
         var mouse = new Product
         {
             Sku = "MOUSE-01", Price = 24.50m, CategoryId = electronics.Id,
             Name = "Wireless Mouse", Description = "Two-button wireless mouse."
         };
-        Stage(translations, mouse, "ar", "فأرة لاسلكية", "فأرة لاسلكية بزرين.");
+        Translate(multiLingual, mouse, "ar", "فأرة لاسلكية", "فأرة لاسلكية بزرين.");
         // No French: proves the fallback on the read path.
 
         var notebook = new Product
@@ -102,8 +101,9 @@ public static class DbInitializer
     }
 
     /// <summary>Queues one non-base language for the next save of <paramref name="entity"/>.</summary>
-    private static void Stage(ITranslationManager translations, object entity, string language, string name, string description) =>
-        translations.Stage(entity, language, new Dictionary<string, string?>
+    private static void Translate<T>(IMultiLingualManager multiLingual, T entity, string language, string name, string description)
+        where T : class =>
+        multiLingual.For(entity).Set(language, new Dictionary<string, string?>
         {
             ["Name"] = name,
             ["Description"] = description

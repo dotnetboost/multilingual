@@ -128,8 +128,8 @@ namespace Microsoft.Extensions.DependencyInjection
                 .WithSummary("Gets one language.")
                 .ProducesProblem(StatusCodes.Status404NotFound);
 
-            group.MapPost("/", (CreateLanguageRequest request, ILanguageManager languages, CancellationToken ct)
-                    => CreateAsync(request, languages, basePath, ct))
+            group.MapPost("/", (CreateLanguageRequest request, IMultiLingualManager multiLingual, CancellationToken ct)
+                    => CreateAsync(request, multiLingual, basePath, ct))
                 .WithSummary("Creates a language. The first language created becomes the default.")
                 .ProducesProblem(StatusCodes.Status400BadRequest)
                 .ProducesProblem(StatusCodes.Status409Conflict);
@@ -157,18 +157,18 @@ namespace Microsoft.Extensions.DependencyInjection
             return group;
         }
 
-        private static async Task<Ok<List<LanguageResponse>>> GetAllAsync(ILanguageManager languages, CancellationToken ct) =>
-            TypedResults.Ok((await languages.GetAllAsync(ct)).Select(LanguageResponse.From).ToList());
+        private static async Task<Ok<List<LanguageResponse>>> GetAllAsync(IMultiLingualManager multiLingual, CancellationToken ct) =>
+            TypedResults.Ok((await multiLingual.Languages.GetAllAsync(ct)).Select(LanguageResponse.From).ToList());
 
-        private static async Task<Ok<LanguageResponse>> GetAsync(string code, ILanguageManager languages, CancellationToken ct) =>
-            TypedResults.Ok(LanguageResponse.From(await languages.GetAsync(code, ct)));
+        private static async Task<Ok<LanguageResponse>> GetAsync(string code, IMultiLingualManager multiLingual, CancellationToken ct) =>
+            TypedResults.Ok(LanguageResponse.From(await multiLingual.Languages.GetAsync(code, ct)));
 
         private static async Task<Created<LanguageResponse>> CreateAsync(
-            CreateLanguageRequest request, ILanguageManager languages, string basePath, CancellationToken ct)
+            CreateLanguageRequest request, IMultiLingualManager multiLingual, string basePath, CancellationToken ct)
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            var created = await languages.CreateAsync(new NewLanguage
+            var created = await multiLingual.Languages.CreateAsync(new NewLanguage
             {
                 Code      = request.Code ?? string.Empty,
                 Name      = request.Name ?? string.Empty,
@@ -181,11 +181,11 @@ namespace Microsoft.Extensions.DependencyInjection
         }
 
         private static async Task<Ok<LanguageResponse>> UpdateAsync(
-            string code, UpdateLanguageRequest request, ILanguageManager languages, CancellationToken ct)
+            string code, UpdateLanguageRequest request, IMultiLingualManager multiLingual, CancellationToken ct)
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            var updated = await languages.UpdateAsync(code, new LanguageUpdate
+            var updated = await multiLingual.Languages.UpdateAsync(code, new LanguageUpdate
             {
                 Name      = request.Name ?? string.Empty,
                 Direction = TextDirections.Parse(request.Direction),
@@ -195,19 +195,19 @@ namespace Microsoft.Extensions.DependencyInjection
             return TypedResults.Ok(LanguageResponse.From(updated));
         }
 
-        private static async Task<NoContent> DeleteAsync(string code, ILanguageManager languages, CancellationToken ct)
+        private static async Task<NoContent> DeleteAsync(string code, IMultiLingualManager multiLingual, CancellationToken ct)
         {
-            await languages.DeleteAsync(code, ct);
+            await multiLingual.Languages.DeleteAsync(code, ct);
             return TypedResults.NoContent();
         }
 
-        private static async Task<Ok<LanguageResponse>> SetDefaultAsync(string code, ILanguageManager languages, CancellationToken ct) =>
-            TypedResults.Ok(LanguageResponse.From(await languages.SetDefaultAsync(code, ct)));
+        private static async Task<Ok<LanguageResponse>> SetDefaultAsync(string code, IMultiLingualManager multiLingual, CancellationToken ct) =>
+            TypedResults.Ok(LanguageResponse.From(await multiLingual.Languages.SetDefaultAsync(code, ct)));
 
-        private static async Task<Ok<PurgeTranslationsResponse>> PurgeAsync(string code, ILanguageManager languages, CancellationToken ct)
+        private static async Task<Ok<PurgeTranslationsResponse>> PurgeAsync(string code, IMultiLingualManager multiLingual, CancellationToken ct)
         {
-            var language = await languages.GetAsync(code, ct);
-            var deleted  = await languages.PurgeTranslationsAsync(language.Code, ct);
+            var language = await multiLingual.Languages.GetAsync(code, ct);
+            var deleted  = await multiLingual.Languages.PurgeTranslationsAsync(language.Code, ct);
             return TypedResults.Ok(new PurgeTranslationsResponse(language.Code, deleted));
         }
     }

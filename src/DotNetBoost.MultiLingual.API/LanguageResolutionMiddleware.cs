@@ -25,7 +25,7 @@ namespace DotNetBoost.MultiLingual.API;
 /// <param name="next">The rest of the pipeline.</param>
 /// <param name="catalog">The language list.</param>
 /// <param name="options">What else the resolved language is applied to.</param>
-public sealed class LanguageResolutionMiddleware(RequestDelegate next, ILanguageCatalog catalog, MultiLingualRequestOptions options)
+internal sealed class LanguageResolutionMiddleware(RequestDelegate next, ILanguageCatalog catalog, MultiLingualRequestOptions options)
 {
     /// <summary>Resolves the language, then runs the rest of the pipeline.</summary>
     public async Task InvokeAsync(HttpContext context, ILanguageContext languageContext)
@@ -141,7 +141,7 @@ public static class MultiLingualApplicationBuilderExtensions
     }
 }
 
-/// <summary>What <c>UseMultiLingual()</c> carries the resolved language over to, besides <see cref="ILanguageContext"/>.</summary>
+/// <summary>What <c>UseMultiLingual()</c> carries the resolved language over to, besides <see cref="IMultiLingualManager.CurrentLanguage"/>.</summary>
 public sealed class MultiLingualRequestOptions
 {
     /// <summary>

@@ -21,11 +21,7 @@ namespace SampleApp.Controllers;
 [Produces("application/json")]
 public sealed class ProductsController(
     AppDbContext db,
-    ITranslationHydrator hydrator,
-    ITranslationManager translations,
-    ILanguageCatalog languages,
-    MultiLingualOptions options,
-    ILanguageContext language,
+    IMultiLingualManager multiLingual,
     IStringLocalizer<SharedResource> localizer)
     : ControllerBase
 {
@@ -75,7 +71,7 @@ public sealed class ProductsController(
         };
 
         // One query for the products, one for all their translations.
-        var products = await query.ToLocalizedListAsync(hydrator, ct);
+        var products = await query.ToLocalizedListAsync(ct);
 
         return Ok(products.Select(ToResponse).ToList());
     }
@@ -94,7 +90,7 @@ public sealed class ProductsController(
     [ProducesResponseType<IReadOnlyList<ProductSummaryResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ProductSummaryResponse>>> GetSummaries(CancellationToken ct)
     {
-        var languageCode = language.Current.Code;
+        var languageCode = multiLingual.CurrentLanguage.Code;
 
         var summaries = await db.Products
             .AsNoTracking()
@@ -113,7 +109,7 @@ public sealed class ProductsController(
         var product = await db.Products
             .AsNoTracking()
             .Where(p => p.Id == id)
-            .FirstLocalizedOrDefaultAsync(hydrator, ct)
+            .FirstLocalizedOrDefaultAsync(ct)
             ?? throw new NotFoundException("Products.NotFound", id);
 
         return Ok(ToResponse(product));
@@ -128,7 +124,7 @@ public sealed class ProductsController(
         var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new NotFoundException("Products.NotFound", id);
 
-        var stored = await translations.GetAllAsync(product, ct);
+        var stored = await multiLingual.For(product).GetAllAsync(ct);
 
         return Ok(new ProductTranslationsResponse(product.Id, product.Sku, stored));
     }
@@ -241,7 +237,7 @@ public sealed class ProductsController(
         var saved = await db.Products
             .AsNoTracking()
             .Where(p => p.Id == id)
-            .FirstLocalizedOrDefaultAsync(hydrator, ct);
+            .FirstLocalizedOrDefaultAsync(ct);
 
         return Ok(ToResponse(saved!) with { Message = localizer["Products.Updated", saved!.Sku] });
     }
@@ -264,18 +260,13 @@ public sealed class ProductsController(
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new NotFoundException("Products.NotFound", id);
 
-        var target = await languages.FindByCodeAsync(languageCode, ct)
-            ?? throw new NotFoundException("Languages.NotFound", languageCode);
-
-        if (options.IsBaseLanguage(target.Code))
-        {
-            throw new ConflictException("Products.CannotClearBaseLanguage", target.Code);
-        }
-
-        translations.Clear(product, target.Code);
+        // Unknown language → 404, base language → 409: the library refuses both before anything
+        // is queued, and MultiLingualExceptionHandler turns them into problem details.
+        multiLingual.For(product).Clear(languageCode);
         await db.SaveChangesAsync(ct);
 
-        return Ok(new DeleteResponse(product.Id, localizer["Products.TranslationCleared", product.Sku, target.Code]));
+        var code = LanguageCodes.Normalize(languageCode);
+        return Ok(new DeleteResponse(product.Id, localizer["Products.TranslationCleared", product.Sku, code]));
     }
 
     /// <summary>
@@ -341,5 +332,5 @@ public sealed class ProductsController(
             product.CategoryId,
             product.Name,
             product.Description,
-            language.Current.Code);
+            multiLingual.CurrentLanguage.Code);
 }
