@@ -17,6 +17,8 @@
     "CannotClearBaseLanguage": "'{0}' is the base language: its text is the product's own columns, not a translation. Change it with PUT instead."
   },
   "Categories": {
+    "Created": "Category '{0}' was created.",
+    "Updated": "Category '{0}' was updated.",
     "NotFound": "Category {0} was not found.",
     "SlugExists": "A category with slug '{0}' already exists."
   },

@@ -270,7 +270,7 @@ Accept-Language: ar
 GET {{host}}/api/categories
 Accept-Language: fr
 
-###
+### Create -> "message": "Category 'home-garden' was created."
 POST {{host}}/api/categories
 Accept-Language: en
 Content-Type: application/json
@@ -282,7 +282,7 @@ Content-Type: application/json
   "description": "Everything for the house."
 }
 
-### Add Arabic to the new category
+### Add Arabic to the new category -> "message": "تم تحديث الفئة 'home-garden'."
 PUT {{host}}/api/categories/3
 Accept-Language: ar
 Content-Type: application/json

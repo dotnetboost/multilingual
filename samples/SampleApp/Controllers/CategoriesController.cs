@@ -2,6 +2,7 @@ using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Localization;
 using SampleApp.Data;
 using SampleApp.Domain;
 using SampleApp.Dtos;
@@ -21,7 +22,8 @@ public sealed class CategoriesController(
     AppDbContext db,
     ITranslationHydrator hydrator,
     ITranslationManager translations,
-    ILanguageContext language)
+    ILanguageContext language,
+    IStringLocalizer<SharedResource> localizer)
     : ControllerBase
 {
     [HttpGet]
@@ -89,7 +91,9 @@ public sealed class CategoriesController(
         db.Categories.Add(category);
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(Get), new { id = category.Id }, ToResponse(category));
+        var created = ToResponse(category) with { Message = localizer["Categories.Created", category.Slug] };
+
+        return CreatedAtAction(nameof(Get), new { id = category.Id }, created);
     }
 
     [HttpPut("{id:int}")]
@@ -140,7 +144,7 @@ public sealed class CategoriesController(
             .Where(c => c.Id == id)
             .FirstLocalizedOrDefaultAsync(hydrator, ct);
 
-        return Ok(ToResponse(saved!));
+        return Ok(ToResponse(saved!) with { Message = localizer["Categories.Updated", saved!.Slug] });
     }
 
     [HttpDelete("{id:int}")]

@@ -32,13 +32,18 @@ public sealed record UpdateCategoryRequest
     public string? Description { get; init; }
 }
 
+/// <param name="Message">
+/// A human-readable confirmation in the request's language — set only by create and update, and
+/// left out of the JSON everywhere else.
+/// </param>
 public sealed record CategoryResponse(
     int Id,
     string Slug,
     int DisplayOrder,
     string? Name,
     string? Description,
-    string Language);
+    string Language,
+    string? Message = null);
 
 public sealed record CategoryTranslationsResponse(
     int Id,
