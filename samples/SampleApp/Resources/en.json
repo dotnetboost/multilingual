@@ -11,6 +11,9 @@
   "Products": {
     "Created": "Product {0} was created.",
     "Updated": "Product {0} was updated.",
+    "Deleted": "Product {0} was deleted.",
+    "TranslationCleared": "The '{1}' translation of product {0} was removed.",
+    "BulkDeleted": "Products deleted: {0}. Translations left behind and removed: {1}.",
     "NotFound": "Product {0} was not found.",
     "SkuExists": "A product with SKU '{0}' already exists.",
     "UnknownSort": "Unknown sort '{0}'. Use 'id', 'name' or '-name'.",
@@ -19,6 +22,7 @@
   "Categories": {
     "Created": "Category '{0}' was created.",
     "Updated": "Category '{0}' was updated.",
+    "Deleted": "Category '{0}' was deleted.",
     "NotFound": "Category {0} was not found.",
     "SlugExists": "A category with slug '{0}' already exists."
   },

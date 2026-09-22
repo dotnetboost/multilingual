@@ -75,8 +75,11 @@ public sealed record ProductSummaryResponse(
     string? Category,
     string Language);
 
-/// <summary>What a bulk delete removed: the products, and the translation rows they left behind.</summary>
-public sealed record BulkDeleteResponse(int DeletedProducts, int PurgedTranslations);
+/// <summary>
+/// What a bulk delete removed: the products, the translation rows they left behind, and a
+/// confirmation in the request's language.
+/// </summary>
+public sealed record BulkDeleteResponse(int DeletedProducts, int PurgedTranslations, string Message);
 
 /// <summary>Every stored translation for one product, for verifying the mechanism end to end.</summary>
 public sealed record ProductTranslationsResponse(

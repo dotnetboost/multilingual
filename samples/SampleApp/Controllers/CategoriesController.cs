@@ -148,9 +148,9 @@ public sealed class CategoriesController(
     }
 
     [HttpDelete("{id:int}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<DeleteResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    public async Task<ActionResult<DeleteResponse>> Delete(int id, CancellationToken ct)
     {
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new NotFoundException("Categories.NotFound", id);
@@ -158,7 +158,7 @@ public sealed class CategoriesController(
         db.Categories.Remove(category);
         await db.SaveChangesAsync(ct);
 
-        return NoContent();
+        return Ok(new DeleteResponse(category.Id, localizer["Categories.Deleted", category.Slug]));
     }
 
     private CategoryResponse ToResponse(Category category) =>

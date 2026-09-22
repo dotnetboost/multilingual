@@ -255,10 +255,10 @@ public sealed class ProductsController(
     /// </para>
     /// </summary>
     [HttpDelete("{id:int}/translations/{languageCode}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<DeleteResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> ClearTranslation(int id, string languageCode, CancellationToken ct)
+    public async Task<ActionResult<DeleteResponse>> ClearTranslation(int id, string languageCode, CancellationToken ct)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new NotFoundException("Products.NotFound", id);
@@ -274,7 +274,7 @@ public sealed class ProductsController(
         translations.Clear(product, target.Code);
         await db.SaveChangesAsync(ct);
 
-        return NoContent();
+        return Ok(new DeleteResponse(product.Id, localizer["Products.TranslationCleared", product.Sku, target.Code]));
     }
 
     /// <summary>
@@ -299,7 +299,7 @@ public sealed class ProductsController(
         var deleted = await db.Products.Where(p => p.CategoryId == categoryId).ExecuteDeleteAsync(ct);
         var purged  = await db.PurgeOrphanedTranslationsAsync(ct);
 
-        return Ok(new BulkDeleteResponse(deleted, purged));
+        return Ok(new BulkDeleteResponse(deleted, purged, localizer["Products.BulkDeleted", deleted, purged]));
     }
 
     /// <summary>
@@ -307,9 +307,9 @@ public sealed class ProductsController(
     /// transaction — the controller does not mention translations at all.
     /// </summary>
     [HttpDelete("{id:int}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<DeleteResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    public async Task<ActionResult<DeleteResponse>> Delete(int id, CancellationToken ct)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new NotFoundException("Products.NotFound", id);
@@ -317,7 +317,7 @@ public sealed class ProductsController(
         db.Products.Remove(product);
         await db.SaveChangesAsync(ct);
 
-        return NoContent();
+        return Ok(new DeleteResponse(product.Id, localizer["Products.Deleted", product.Sku]));
     }
 
     private async Task EnsureCategoryExistsAsync(int? categoryId, CancellationToken ct)

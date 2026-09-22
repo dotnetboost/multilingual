@@ -244,7 +244,10 @@ Content-Type: application/json
 
 ### Remove one language's translation. A PUT cannot: a null field there means "not supplied".
 ### French reads of product 4 now fall back to the English columns; Arabic is untouched.
+### Deletes answer 200 with a confirmation in the request's language (a 204 cannot carry one):
+###   "message": "تمت إزالة ترجمة 'fr' للمنتج HEADSET-02."
 DELETE {{host}}/api/products/4/translations/fr
+Accept-Language: ar
 
 ###
 GET {{host}}/api/products/4
@@ -254,6 +257,7 @@ Accept-Language: fr
 DELETE {{host}}/api/products/4/translations/en
 
 ### Delete: the product's translation rows go with it, same transaction
+###   -> { "id": 4, "message": "Product HEADSET-02 was deleted." }
 DELETE {{host}}/api/products/4
 
 ###
@@ -364,7 +368,7 @@ Accept-Language: ar
 ### every translation row whose entity is gone. The response counts both.
 
 ### Delete every product in "electronics" (category 1): LAPTOP-14 and MOUSE-01, whose Arabic and
-### French rows are then purged -> { "deletedProducts": 2, "purgedTranslations": 6 }
+### French rows are then purged -> { "deletedProducts": 2, "purgedTranslations": 6, "message": "…" }
 ### (Run it last: the examples above use these products.)
 DELETE {{host}}/api/products?categoryId=1
 
