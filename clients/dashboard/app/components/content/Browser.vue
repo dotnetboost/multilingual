@@ -183,7 +183,7 @@ onMounted(load)
         <UIcon name="i-lucide-arrow-right" />
         <span>resolved to <span class="font-mono">{{ resolved }}</span></span>
       </template>
-      <span class="ms-auto">Select a row to edit it in every language.</span>
+      <span class="ms-auto">Select a row to edit it.</span>
     </div>
 
     <UTable
@@ -251,7 +251,7 @@ onMounted(load)
     <USlideover
       :open="selected !== null"
       :title="selectedItem ? `${type.name} ${selectedItem[type.identifier]}` : type.name"
-      :description="`Each language is saved on its own: PUT api/${type.route}/${selected} with that language in Accept-Language.`"
+      :description="`Edited one language at a time: PUT api/${type.route}/${selected} with that language in Accept-Language.`"
       :ui="{ content: 'sm:max-w-xl' }"
       @update:open="!$event && (selected = null)"
     >

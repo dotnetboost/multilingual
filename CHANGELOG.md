@@ -100,8 +100,8 @@ keeps the versions its runtime ships.
 ### Dashboard
 - A Nuxt 4 single-page client in `clients/dashboard`, built on the Nuxt UI dashboard template: a
   Languages page over `MapLanguageEndpoints()`, and a Content page that lists the sample's entities
-  in any language, creates and deletes them, and edits each one per language, side by side. Nitro proxies the API, so no CORS
-  setup is needed.
+  in any language, creates and deletes them, and edits every field of each, one language at a time.
+  Nitro proxies the API, so no CORS setup is needed.
 
 ### Aspire
 - `aspire/DotNetBoost.MultiLingual.AppHost` starts PostgreSQL (with pgweb), the sample API and the

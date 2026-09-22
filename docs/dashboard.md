@@ -41,9 +41,15 @@ other language hangs off the base value. The new item opens straight in the edit
 other languages. The bin at the end of a row deletes the item, and its translations with it in every
 language; deleting a category keeps its products, with no category.
 
-Selecting a row opens the item in every active language, one card each. A card saves on its own, as
-`PUT api/products/{id}` with that language in `Accept-Language`, and sends only the fields you
-changed. With the sample's base language, English is the `Products` row itself; every other
+Selecting a row opens the item for editing, one language at a time. A label at the top says which
+language is being edited — the base language first, else the default — and the list below it has an
+**Edit in …** button per active language. The form holds every field: the details, which are the
+same in every language (SKU, price and category; slug and display order), and the translatable
+fields in the language being edited. **Save** sends `PUT api/{route}/{id}` with that language in
+`Accept-Language` and only the fields you changed, details included. Unsaved edits in the other
+languages are kept, and marked in the list, until you save or reset them. The sample's `PUT` cannot
+unset a product's category — a `null` there means "leave it alone" — so once set it can be changed
+but not removed. With the sample's base language, English is the `Products` row itself; every other
 language is a row in `Translations`, and an empty field shows what reads in that language fall back
 to. **Clear translation** removes one language's stored fields, so it falls back again.
 

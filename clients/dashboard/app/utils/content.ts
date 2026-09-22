@@ -1,4 +1,5 @@
-import type { ContentType } from '~/types'
+import type { FormError } from '@nuxt/ui'
+import type { ContentType, DetailField } from '~/types'
 
 /**
  * The content types the dashboard edits, one tab each.
@@ -7,7 +8,8 @@ import type { ContentType } from '~/types'
  * samples/SampleApp. Each entry says where the type lives and which of its properties are
  * `[MultiLingual]`. The dashboard assumes the shape the sample uses: `GET api/{route}` and
  * `GET api/{route}/{id}` read in the `Accept-Language` language, `PUT api/{route}/{id}` writes the
- * supplied fields in it, and `GET api/{route}/{id}/translations` returns every stored language.
+ * supplied translatable fields in it (and the supplied `details`, which are the same in every
+ * language), and `GET api/{route}/{id}/translations` returns every stored language.
  */
 export const contentTypes: ContentType[] = [
   {
@@ -23,7 +25,7 @@ export const contentTypes: ContentType[] = [
       { key: 'description', label: 'Description', multiline: true }
     ],
     clearable: true,
-    create: [
+    details: [
       { key: 'sku', label: 'SKU', description: 'Unique, up to 64 characters. The same in every language.', type: 'text', required: true, maxLength: 64 },
       { key: 'price', label: 'Price', type: 'number', min: 0, step: 0.01 },
       { key: 'categoryId', label: 'Category', type: 'reference', reference: 'categories' }
@@ -42,13 +44,16 @@ export const contentTypes: ContentType[] = [
       { key: 'description', label: 'Description', multiline: true }
     ],
     clearable: false,
-    create: [
+    details: [
       { key: 'slug', label: 'Slug', description: 'Unique, up to 128 characters. Opted out with [NotMultiLingual], so it is the same in every language.', type: 'text', required: true, maxLength: 128 },
       { key: 'displayOrder', label: 'Display order', type: 'number', step: 1 }
     ],
     deleteNote: 'Its products are kept, with no category.'
   }
 ]
+
+/** The value a `reference` picker holds for "none": Select items cannot carry an empty value. */
+export const NO_REFERENCE = 0
 
 export function findContentType(route: string): ContentType | undefined {
   return contentTypes.find(type => type.route === route)
@@ -65,6 +70,26 @@ export function storedValue(entry: Record<string, string | null> | undefined, ke
 
   const property = Object.keys(entry).find(name => name.toLowerCase() === key.toLowerCase())
   return property === undefined ? undefined : entry[property]
+}
+
+/**
+ * Checks the text details a form holds. The API validates too, and its word is final: these only
+ * save a round trip for the obvious.
+ */
+export function validateDetails(fields: DetailField[], values: Record<string, unknown>): FormError[] {
+  const errors: FormError[] = []
+
+  for (const field of fields.filter(candidate => candidate.type === 'text')) {
+    const value = String(values[field.key] ?? '').trim()
+
+    if (field.required && !value) {
+      errors.push({ name: field.key, message: 'Required.' })
+    } else if (field.maxLength && value.length > field.maxLength) {
+      errors.push({ name: field.key, message: `At most ${field.maxLength} characters.` })
+    }
+  }
+
+  return errors
 }
 
 /** `displayOrder` -> `Display Order`. Column header for untranslated properties. */

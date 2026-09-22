@@ -58,9 +58,10 @@ so the editor reads it from the item itself, and never offers to clear it.
 | `app/composables/useLanguages.ts` | The shared language list and every `api/languages` call |
 | `app/pages/languages.vue` | The language table: add, edit, activate, set default, purge, delete |
 | `app/utils/content.ts` | The content-type registry — `route` must match the application's controller |
-| `app/composables/useContentItem.ts` | One item in every active language: load, dirty-tracking, save, clear |
+| `app/composables/useContentItem.ts` | One item: its details and every active language — load, dirty-tracking, save, clear |
 | `app/components/content/Browser.vue` | Lists one content type in the chosen `Accept-Language` |
-| `app/components/content/Editor.vue` | Edits one item, one card per language |
+| `app/components/content/Editor.vue` | Edits one item, one language at a time, picked from a list |
+| `app/components/content/DetailFields.vue` | The untranslated fields, shared by the editor and the create form |
 | `app/components/content/CreateModal.vue` | Creates an item: `POST api/{route}` in one language |
 | `app/pages/content.vue` | Top menu, one entry per content type |
 | `server/api/[...path].ts` | Proxy to the .NET API |
@@ -78,7 +79,7 @@ deletes one. An application with the same
 shape can list its own entities there.
 
 **New product** / **New category** asks for the untranslated properties the registry lists under
-`create` — SKU, price and category; slug and display order — and the translatable fields in one
+`details` — SKU, price and category; slug and display order — and the translatable fields in one
 language, sent as `Accept-Language`. With a base language that language is fixed to it, because the
 API only creates in the base language. The new item then opens in the editor, where the other
 languages are added.
@@ -88,16 +89,19 @@ in every language — the save interceptor removes them in the same transaction 
 `deleteNote` says what else the endpoint does: deleting a category keeps its products, with no
 category.
 
-Each language saves on its own, with that language in `Accept-Language`, and sends only the fields
-that changed — a field left out means "leave it alone", so other fields in that language, and every
-other language, are untouched. An empty field that has nothing stored shows, as its placeholder,
+The editor edits one language at a time: a label says which, and the list below it switches with
+an **Edit in …** button per language. Its form holds the details as well, since `PUT` takes them in
+any language. Each save goes out with the language being edited in `Accept-Language`, and sends only
+the fields that changed, details included: a field left out means "leave it alone", so the other
+fields, and every other language, are untouched. Unsaved edits in other languages are kept, and
+marked in the list, until saved or reset. An empty field that has nothing stored shows, as its placeholder,
 what reads in that language fall back to. **Clear translation** calls
 `DELETE api/{route}/{id}/translations/{code}` where the registry says the API has it (`clearable`).
 
 ## Adding a content type
 
 1. Add an entry to `contentTypes` in `app/utils/content.ts`, with `route` matching the controller
-   `fields` listing its `[MultiLingual]` properties, and `create` its untranslated ones.
+   `fields` listing its `[MultiLingual]` properties, and `details` its untranslated ones.
 2. Add a page under `app/pages/content/` that renders `<ContentBrowser :type="…" />`.
 
 The sidebar and the top menu both build from the registry, so no other file needs to change.

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import type { FormError } from '@nuxt/ui'
-import type { ContentItem, ContentType } from '~/types'
+import type { ContentItem, ContentType, DetailField } from '~/types'
 
 /**
  * Creates one item: its untranslated properties, and its translatable ones in a single language —
@@ -26,17 +25,13 @@ const { active, defaultLanguage, find } = useLanguages()
 
 const form = useTemplateRef('form')
 
-/** The sentinel a `reference` picker holds for "none": Select items cannot carry an empty value. */
-const NONE = 0
-
 // Values differ per content type, and each control narrows its own at the point of use.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const state = reactive<Record<string, any>>({})
 const language = ref('')
 const saving = ref(false)
 const problem = ref('')
-/** Reference field key → the items it can point at. */
-const options = ref<Record<string, { label: string, value: number }[]>>({})
+const { options, load: loadOptions } = useReferenceOptions(() => props.type.details, language)
 
 const direction = computed(() => find(language.value)?.direction ?? 'ltr')
 
@@ -45,28 +40,8 @@ const languageItems = computed(() => active.value.map(candidate => ({
   value: candidate.code
 })))
 
-function initialValue(field: ContentType['create'][number]) {
-  return field.type === 'number' ? 0 : field.type === 'reference' ? NONE : ''
-}
-
-async function loadOptions() {
-  for (const field of props.type.create.filter(candidate => candidate.type === 'reference')) {
-    const target = findContentType(field.reference!)
-
-    try {
-      const items = await $fetch<ContentItem[]>(`/api/${field.reference}`, { headers: inLanguage(language.value) })
-
-      options.value[field.key] = [
-        { label: 'None', value: NONE },
-        ...items.map(item => ({
-          label: String(item.name ?? (target ? item[target.identifier] : item.id)),
-          value: item.id
-        }))
-      ]
-    } catch {
-      options.value[field.key] = [{ label: 'None', value: NONE }]
-    }
-  }
+function initialValue(field: DetailField) {
+  return field.type === 'number' ? 0 : field.type === 'reference' ? NO_REFERENCE : ''
 }
 
 watch(open, (isOpen) => {
@@ -77,7 +52,7 @@ watch(open, (isOpen) => {
   problem.value = ''
   language.value = baseLanguage || defaultLanguage.value?.code || ''
 
-  for (const field of props.type.create) {
+  for (const field of props.type.details) {
     state[field.key] = initialValue(field)
   }
   for (const field of props.type.fields) {
@@ -87,22 +62,7 @@ watch(open, (isOpen) => {
   loadOptions()
 })
 
-// The API validates too, and its word is final. These only save a round trip for the obvious.
-function validate(values: Record<string, unknown>): FormError[] {
-  const errors: FormError[] = []
-
-  for (const field of props.type.create.filter(candidate => candidate.type === 'text')) {
-    const value = String(values[field.key] ?? '').trim()
-
-    if (field.required && !value) {
-      errors.push({ name: field.key, message: 'Required.' })
-    } else if (field.maxLength && value.length > field.maxLength) {
-      errors.push({ name: field.key, message: `At most ${field.maxLength} characters.` })
-    }
-  }
-
-  return errors
-}
+const validate = (values: Record<string, unknown>) => validateDetails(props.type.details, values)
 
 /** Enter submits from a single-line input; in a textarea it is a new line, and mid-composition it is the IME's. */
 function onEnter(event: KeyboardEvent) {
@@ -119,11 +79,11 @@ async function submit() {
   problem.value = ''
 
   const body: Record<string, unknown> = {}
-  for (const field of props.type.create) {
+  for (const field of props.type.details) {
     const value = state[field.key]
 
     if (field.type === 'reference') {
-      if (value !== NONE) {
+      if (value !== NO_REFERENCE) {
         body[field.key] = value
       }
     } else {
@@ -186,36 +146,7 @@ async function submit() {
           :description="problem"
         />
 
-        <UFormField
-          v-for="field in type.create"
-          :key="field.key"
-          :name="field.key"
-          :label="field.label"
-          :description="field.description"
-          :required="field.required"
-        >
-          <UInputNumber
-            v-if="field.type === 'number'"
-            v-model="state[field.key]"
-            :min="field.min"
-            :step="field.step"
-            class="w-full sm:w-56"
-          />
-
-          <USelect
-            v-else-if="field.type === 'reference'"
-            v-model="state[field.key]"
-            :items="options[field.key] ?? []"
-            class="w-full"
-          />
-
-          <UInput
-            v-else
-            v-model="state[field.key]"
-            autocomplete="off"
-            class="w-full font-mono"
-          />
-        </UFormField>
+        <ContentDetailFields :fields="type.details" :state="state" :options="options" />
 
         <USeparator />
 

@@ -42,9 +42,9 @@ export interface ContentField {
   multiline?: boolean
 }
 
-/** An untranslated property the create form asks for, e.g. `sku` or `price`. */
-export interface CreateField {
-  /** camelCase name, as it appears in the request body. */
+/** An untranslated property, e.g. `sku` or `price`: the same in every language. */
+export interface DetailField {
+  /** camelCase name, as it appears in the request body and the response. */
   key: string
   label: string
   description?: string
@@ -56,6 +56,11 @@ export interface CreateField {
   step?: number
   /** For `reference`: the route of the content type it points at, e.g. `categories`. */
   reference?: string
+  /**
+   * For `reference`: whether `PUT` can set it back to none. The sample's cannot — a `null` there
+   * means "leave it alone" — so the editor offers "None" only while nothing is set.
+   */
+  unsettable?: boolean
 }
 
 /**
@@ -78,8 +83,11 @@ export interface ContentType {
   fields: ContentField[]
   /** Whether the API offers `DELETE api/{route}/{id}/translations/{code}`. */
   clearable: boolean
-  /** The untranslated properties `POST api/{route}` takes, alongside the translatable ones. */
-  create: CreateField[]
+  /**
+   * The untranslated properties. `POST api/{route}` takes them alongside the translatable ones,
+   * and `PUT api/{route}/{id}` updates those it is sent, whatever the request's language.
+   */
+  details: DetailField[]
   /** What else `DELETE api/{route}/{id}` does, for the confirmation. */
   deleteNote?: string
 }
