@@ -239,6 +239,26 @@ public sealed class BaseLanguageTests
         Assert.Equal("Portable", Assert.Single(await shop.StoredTranslationsAsync()).Value);
     }
 
+    [Fact]
+    public async Task ExecuteUpdate_SettingTheTranslatableColumn_IsRefused_RatherThanCorruptingTheBaseLanguage()
+    {
+        await using var shop = await BaseShop.StartAsync();
+        var id = await shop.CreateProductAsync("LAPTOP", "Laptop");
+
+        await using var scope = await shop.ScopeInAsync("fr");
+
+        // Unguarded, this would write straight into the "en" column: ExecuteUpdate never runs
+        // through SaveChanges, so BaseLanguageRequiredException and the tracker never see it.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            scope.Db.Products.Where(p => p.Id == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, "Ordinateur Portable")));
+
+        Assert.Contains("ShopProduct.Name", ex.Message, StringComparison.Ordinal);
+
+        Assert.Equal("Laptop", await shop.StoredColumnNameAsync(id));
+        Assert.Empty(await shop.StoredTranslationsAsync());
+    }
+
     // ----------------------------------------------------------------- read
 
     [Fact]

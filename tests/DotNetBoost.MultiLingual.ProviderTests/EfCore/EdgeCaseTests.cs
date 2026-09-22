@@ -49,6 +49,24 @@ public sealed class EdgeCaseTests
         Assert.Equal(["MOUSE", "Portable"], await scope.Db.Products.Select(p => p.Sku).OrderBy(s => s).ToListAsync());
     }
 
+    [Fact]
+    public async Task ExecuteUpdate_SettingATranslatableProperty_IsRefused()
+    {
+        await using var shop = await EdgeShop<EdgeDbContext>.StartAsync();
+        await SeedAsync(shop);
+        await using var scope = await shop.ScopeInAsync("fr");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            scope.Db.Products.Where(p => p.Sku == "LAPTOP")
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, "Ordinateur")));
+
+        Assert.Contains("EdgeProduct.Name", ex.Message, StringComparison.Ordinal);
+
+        // Refused before the database is touched — the seeded French translation is untouched.
+        Assert.Equal("Portable", await scope.Db.Products.AsNoTracking()
+            .Where(p => p.Sku == "LAPTOP").Select(p => p.Name).SingleAsync());
+    }
+
     // ================================================================== automatic includes
 
     [Fact]
