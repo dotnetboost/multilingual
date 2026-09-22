@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>DotNetBoost.MultiLingual.Localization</PackageId>
+    <Description>
+      IStringLocalizer for DotNetBoost.MultiLingual, reading application messages from JSON files
+      (Resources/en.json, Resources/ar.json, …) in the same language the translated content is
+      served in, with the same fallback to the default language.
+    </Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The store, the localizers and the language chain are internals; the unit tests exercise
+         them directly. -->
+    <InternalsVisibleTo Include="DotNetBoost.MultiLingual.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Abstractions" />
+    <!-- Only for the default location when the application has no IHostEnvironment. -->
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Physical" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Localization.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+</Project>

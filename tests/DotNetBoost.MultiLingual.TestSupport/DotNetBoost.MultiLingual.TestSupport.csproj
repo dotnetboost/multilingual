@@ -10,5 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Abstractions" />
   </ItemGroup>
 </Project>

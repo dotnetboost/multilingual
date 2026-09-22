@@ -305,7 +305,8 @@ jobs:
           for project in \
             DotNetBoost.MultiLingual.Core \
             DotNetBoost.MultiLingual.EntityFrameworkCore \
-            DotNetBoost.MultiLingual.API; do
+            DotNetBoost.MultiLingual.API \
+            DotNetBoost.MultiLingual.Localization; do
             dotnet pack "src/$project/$project.csproj" \
               --configuration Release --no-build \
               --output ./nupkgs \

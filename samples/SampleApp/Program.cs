@@ -22,9 +22,14 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 // deactivated, and `SELECT * FROM Products` shows readable names.
 //
 // Drop the argument to store every language in Translations instead, columns and all.
+//
+// AddJsonLocalization() serves IStringLocalizer<T> from Resources/en.json and Resources/ar.json, in
+// the same language as the content and with the same fallback: French has no file, so French
+// callers get English messages. The error responses in Infrastructure/AppException.cs use it.
 builder.Services
     .AddMultiLingual(o => o.BaseLanguage = "en")
     .UseEntityFrameworkCore<AppDbContext>()
+    .AddJsonLocalization()
     .Build();
 
 // Running more than one instance? Each caches the language list, and only the instance that
@@ -92,7 +97,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseRouting();
 
-// Resolves Accept-Language into the scoped ILanguageContext that the interceptors read.
+// Resolves Accept-Language into the scoped ILanguageContext that the interceptors and the
+// localizer read, and sets CultureInfo.CurrentUICulture to match.
 app.UseMultiLingual();
 
 app.MapControllers();

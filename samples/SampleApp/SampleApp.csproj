@@ -9,6 +9,7 @@
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.EntityFrameworkCore/DotNetBoost.MultiLingual.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.API/DotNetBoost.MultiLingual.API.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Localization/DotNetBoost.MultiLingual.Localization.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
     <!-- SQLite, so there is nothing to install. Swap for Npgsql.EntityFrameworkCore.PostgreSQL or

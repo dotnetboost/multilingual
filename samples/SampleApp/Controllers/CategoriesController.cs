@@ -46,7 +46,7 @@ public sealed class CategoriesController(
             .AsNoTracking()
             .Where(c => c.Id == id)
             .FirstLocalizedOrDefaultAsync(hydrator, ct)
-            ?? throw new NotFoundException($"Category {id} was not found.");
+            ?? throw new NotFoundException("Categories.NotFound", id);
 
         return Ok(ToResponse(category));
     }
@@ -57,7 +57,7 @@ public sealed class CategoriesController(
     public async Task<ActionResult<CategoryTranslationsResponse>> GetTranslations(int id, CancellationToken ct)
     {
         var category = await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct)
-            ?? throw new NotFoundException($"Category {id} was not found.");
+            ?? throw new NotFoundException("Categories.NotFound", id);
 
         var stored = await translations.GetAllAsync(category, ct);
 
@@ -75,7 +75,7 @@ public sealed class CategoriesController(
         var slug = request.Slug.Trim();
         if (await db.Categories.AnyAsync(c => c.Slug == slug, ct))
         {
-            throw new ConflictException($"A category with slug '{slug}' already exists.");
+            throw new ConflictException("Categories.SlugExists", slug);
         }
 
         var category = new Category
@@ -103,14 +103,14 @@ public sealed class CategoriesController(
         CancellationToken ct)
     {
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id, ct)
-            ?? throw new NotFoundException($"Category {id} was not found.");
+            ?? throw new NotFoundException("Categories.NotFound", id);
 
         if (request.Slug is not null)
         {
             var slug = request.Slug.Trim();
             if (await db.Categories.AnyAsync(c => c.Slug == slug && c.Id != id, ct))
             {
-                throw new ConflictException($"A category with slug '{slug}' already exists.");
+                throw new ConflictException("Categories.SlugExists", slug);
             }
 
             category.Slug = slug;
@@ -149,7 +149,7 @@ public sealed class CategoriesController(
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id, ct)
-            ?? throw new NotFoundException($"Category {id} was not found.");
+            ?? throw new NotFoundException("Categories.NotFound", id);
 
         db.Categories.Remove(category);
         await db.SaveChangesAsync(ct);

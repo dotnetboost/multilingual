@@ -15,8 +15,9 @@ before 1.0.0.
 | `DotNetBoost.MultiLingual.Core` | Attributes, the engine and its contracts. No EF Core or ASP.NET Core dependency. |
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | The EF Core provider: mapping, interceptors, translated queries. |
 | `DotNetBoost.MultiLingual.API` | `Accept-Language` middleware, language endpoints, problem details, OpenAPI. |
+| `DotNetBoost.MultiLingual.Localization` | `IStringLocalizer` over JSON files, in the same language as the content. |
 
-All three target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL and SQLite. On
+All four target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL and SQLite. On
 `net8.0` they need only the 8.0 line of `Microsoft.Extensions` (and EF Core 8), so an application
 keeps the versions its runtime ships.
 
@@ -69,6 +70,19 @@ keeps the versions its runtime ships.
   library's exceptions with problem details (a missing language resource is a 404, a request that
   uses an unknown language a 400, a broken rule a 409).
 - `AddAcceptLanguageParameter()` documents `Accept-Language` in OpenAPI (net10.0).
+- `UseMultiLingual()` also sets `CultureInfo.CurrentUICulture` to the resolved language (and, opted in
+  with `SetCurrentCulture`, `CurrentCulture`); `ApplyUiCulture()` does the same outside the middleware.
+
+### Localized messages
+- `AddJsonLocalization()` serves `IStringLocalizer<T>` from `Resources/{language}.json`: nested
+  objects become dotted keys, and a message missing in the requested language falls back exactly as
+  content does — parent language, default language, then the base language.
+- The injected localizer reads the language from `ILanguageContext`, so it answers in the request's
+  language in exception handlers and background jobs too; the factory's follows `CurrentUICulture`,
+  for framework code such as validation messages.
+- Files are checked at startup and reloaded when they change.
+- The library's own problem details can be translated in the same files, under
+  `MultiLingual.Problems.*`.
 
 ### Running several instances
 - `SynchronizeLanguagesThroughDistributedCache()` shares language changes between instances through

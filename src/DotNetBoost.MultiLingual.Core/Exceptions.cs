@@ -45,11 +45,17 @@ public class LanguageNotFoundException : MultiLingualException
 /// </summary>
 public sealed class UnknownLanguageException : LanguageNotFoundException
 {
+    /// <summary>What the code was used for, e.g. "the values being written".</summary>
+    public string Usage { get; }
+
     /// <summary>Creates the exception for <paramref name="code"/>, saying what it was used for.</summary>
     /// <param name="code">The unknown code.</param>
     /// <param name="usage">What the code was used for, e.g. "the values being written".</param>
     public UnknownLanguageException(string code, string usage)
-        : base(code, $"Language '{code}' does not exist, so it cannot be used for {usage}. Create it first.") { }
+        : base(code, $"Language '{code}' does not exist, so it cannot be used for {usage}. Create it first.")
+    {
+        Usage = usage;
+    }
 }
 
 /// <summary>
@@ -89,6 +95,9 @@ public sealed class NoLanguageConfiguredException : MultiLingualException
 /// </summary>
 public sealed class BaseLanguageRequiredException : MultiLingualException
 {
+    /// <summary>The name translations of the entity are stored under.</summary>
+    public string EntityName { get; }
+
     /// <summary>The configured base language.</summary>
     public string BaseLanguage { get; }
 
@@ -101,6 +110,7 @@ public sealed class BaseLanguageRequiredException : MultiLingualException
                $"current language is '{requestedLanguage}'. Create it with '{baseLanguage}', then add " +
                $"'{requestedLanguage}' with an update.")
     {
+        EntityName        = entityName;
         BaseLanguage      = baseLanguage;
         RequestedLanguage = requestedLanguage;
     }

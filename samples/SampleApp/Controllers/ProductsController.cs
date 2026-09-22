@@ -68,7 +68,7 @@ public sealed class ProductsController(
             null or "" or "id" => query.OrderBy(p => p.Id),
             "name"             => query.OrderByTranslation(db, p => p.Name).ThenBy(p => p.Id),
             "-name"            => query.OrderByTranslationDescending(db, p => p.Name).ThenBy(p => p.Id),
-            _                  => throw new ValidationException($"Unknown sort '{sort}'. Use 'id', 'name' or '-name'.")
+            _                  => throw new ValidationException("Products.UnknownSort", sort)
         };
 
         // One query for the products, one for all their translations.
@@ -111,7 +111,7 @@ public sealed class ProductsController(
             .AsNoTracking()
             .Where(p => p.Id == id)
             .FirstLocalizedOrDefaultAsync(hydrator, ct)
-            ?? throw new NotFoundException($"Product {id} was not found.");
+            ?? throw new NotFoundException("Products.NotFound", id);
 
         return Ok(ToResponse(product));
     }
@@ -123,7 +123,7 @@ public sealed class ProductsController(
     public async Task<ActionResult<ProductTranslationsResponse>> GetTranslations(int id, CancellationToken ct)
     {
         var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
-            ?? throw new NotFoundException($"Product {id} was not found.");
+            ?? throw new NotFoundException("Products.NotFound", id);
 
         var stored = await translations.GetAllAsync(product, ct);
 
@@ -149,7 +149,7 @@ public sealed class ProductsController(
         var sku = request.Sku.Trim();
         if (await db.Products.AnyAsync(p => p.Sku == sku, ct))
         {
-            throw new ConflictException($"A product with SKU '{sku}' already exists.");
+            throw new ConflictException("Products.SkuExists", sku);
         }
 
         var product = new Product
@@ -190,14 +190,14 @@ public sealed class ProductsController(
         CancellationToken ct)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
-            ?? throw new NotFoundException($"Product {id} was not found.");
+            ?? throw new NotFoundException("Products.NotFound", id);
 
         if (request.Sku is not null)
         {
             var sku = request.Sku.Trim();
             if (await db.Products.AnyAsync(p => p.Sku == sku && p.Id != id, ct))
             {
-                throw new ConflictException($"A product with SKU '{sku}' already exists.");
+                throw new ConflictException("Products.SkuExists", sku);
             }
 
             product.Sku = sku;
@@ -256,16 +256,14 @@ public sealed class ProductsController(
     public async Task<IActionResult> ClearTranslation(int id, string languageCode, CancellationToken ct)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
-            ?? throw new NotFoundException($"Product {id} was not found.");
+            ?? throw new NotFoundException("Products.NotFound", id);
 
         var target = await languages.FindByCodeAsync(languageCode, ct)
-            ?? throw new NotFoundException($"Language '{languageCode}' was not found.");
+            ?? throw new NotFoundException("Languages.NotFound", languageCode);
 
         if (options.IsBaseLanguage(target.Code))
         {
-            throw new ConflictException(
-                $"'{target.Code}' is the base language: its text is the product's own columns, not a " +
-                "translation. Change it with PUT instead.");
+            throw new ConflictException("Products.CannotClearBaseLanguage", target.Code);
         }
 
         translations.Clear(product, target.Code);
@@ -309,7 +307,7 @@ public sealed class ProductsController(
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
-            ?? throw new NotFoundException($"Product {id} was not found.");
+            ?? throw new NotFoundException("Products.NotFound", id);
 
         db.Products.Remove(product);
         await db.SaveChangesAsync(ct);
@@ -326,7 +324,7 @@ public sealed class ProductsController(
 
         if (!await db.Categories.AnyAsync(c => c.Id == categoryId, ct))
         {
-            throw new ValidationException($"Category {categoryId} was not found.");
+            throw new ValidationException("Categories.NotFound", categoryId);
         }
     }
 

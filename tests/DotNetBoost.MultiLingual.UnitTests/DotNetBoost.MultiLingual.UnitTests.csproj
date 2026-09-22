@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Localization/DotNetBoost.MultiLingual.Localization.csproj" />
     <ProjectReference Include="../DotNetBoost.MultiLingual.TestSupport/DotNetBoost.MultiLingual.TestSupport.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

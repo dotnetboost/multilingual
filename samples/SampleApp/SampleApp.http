@@ -336,7 +336,25 @@ GET {{host}}/api/products/summaries
 Accept-Language: ar
 
 ### ------------------------------------------------------------------
-### 6. Bulk deletes and orphaned translations
+### 6. Localized error messages — Resources/en.json and Resources/ar.json
+### ------------------------------------------------------------------
+### Errors come back in the request's language, with the same fallback content has: there is no
+### fr.json, so French callers get English. The library's own problems are translated in the same files.
+
+### 404 in Arabic -> "المنتج 9999 غير موجود."
+GET {{host}}/api/products/9999
+Accept-Language: ar
+
+### Same request in French -> no fr.json, so "Product 9999 was not found."
+GET {{host}}/api/products/9999
+Accept-Language: fr
+
+### A library problem, translated under MultiLingual.Problems in ar.json -> "اللغة 'xx' غير موجودة."
+GET {{host}}/api/languages/xx
+Accept-Language: ar
+
+### ------------------------------------------------------------------
+### 7. Bulk deletes and orphaned translations
 ### ------------------------------------------------------------------
 ### ExecuteDelete bypasses SaveChanges, so the interceptor never removes the deleted products'
 ### translations. The endpoint purges them straight after: PurgeOrphanedTranslationsAsync deletes

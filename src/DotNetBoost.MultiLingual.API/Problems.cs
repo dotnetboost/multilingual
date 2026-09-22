@@ -2,6 +2,8 @@ using DotNetBoost.MultiLingual.Core;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Localization;
 
 namespace DotNetBoost.MultiLingual.API;
 
@@ -21,28 +23,77 @@ public static class MultiLingualProblems
         _                            => StatusCodes.Status400BadRequest
     };
 
-    /// <summary>Problem details describing <paramref name="exception"/>.</summary>
+    /// <summary>
+    /// Problem details describing <paramref name="exception"/>. With <paramref name="httpContext"/>
+    /// and an <see cref="IStringLocalizer{T}"/> registered — <c>AddJsonLocalization()</c> — the title
+    /// and detail are looked up in the request's language under
+    /// <c>MultiLingual.Problems.{Kind}.Title</c> and <c>.Detail</c>, where Kind is the exception's
+    /// type name without "Exception". A key that is not there keeps the built-in English text.
+    /// Details take the exception's data as arguments:
+    /// <list type="bullet">
+    ///   <item><c>UnknownLanguage.Detail</c>: <c>{0}</c> code, <c>{1}</c> what it was used for (English).</item>
+    ///   <item><c>LanguageNotFound.Detail</c>: <c>{0}</c> code.</item>
+    ///   <item><c>NoLanguageConfigured.Detail</c>: none.</item>
+    ///   <item><c>BaseLanguageRequired.Detail</c>: <c>{0}</c> entity, <c>{1}</c> base language, <c>{2}</c> requested language.</item>
+    /// </list>
+    /// The other exceptions describe many different rules in one type, so only their title is
+    /// localizable; the detail stays the exception's message.
+    /// </summary>
     public static ProblemDetails ToProblemDetails(MultiLingualException exception, HttpContext? httpContext = null)
     {
         ArgumentNullException.ThrowIfNull(exception);
 
-        var status = StatusCodeFor(exception);
+        var status    = StatusCodeFor(exception);
+        var localizer = httpContext?.RequestServices?.GetService<IStringLocalizer<MultiLingualMessages>>();
+        var prefix    = $"MultiLingual.Problems.{KindOf(exception)}";
+
+        var title = exception switch
+        {
+            UnknownLanguageException     => "Unknown language",
+            LanguageNotFoundException    => "Language not found",
+            InvalidLanguageException     => "Invalid language",
+            BaseLanguageRequiredException => "Base language required",
+            _                            => "Conflict"
+        };
+
         return new ProblemDetails
         {
             Status   = status,
-            Title    = exception switch
-            {
-                UnknownLanguageException     => "Unknown language",
-                LanguageNotFoundException    => "Language not found",
-                InvalidLanguageException     => "Invalid language",
-                BaseLanguageRequiredException => "Base language required",
-                _                            => "Conflict"
-            },
-            Detail   = exception.Message,
+            Title    = Localize(localizer, $"{prefix}.Title", title, []),
+            Detail   = DetailArguments(exception) is { } arguments
+                ? Localize(localizer, $"{prefix}.Detail", exception.Message, arguments)
+                : exception.Message,
             Instance = httpContext?.Request.Path
         };
     }
+
+    private static string KindOf(MultiLingualException exception)
+    {
+        var name = exception.GetType().Name;
+        return name.EndsWith("Exception", StringComparison.Ordinal) ? name[..^"Exception".Length] : name;
+    }
+
+    private static object[]? DetailArguments(MultiLingualException exception) => exception switch
+    {
+        UnknownLanguageException e      => [e.Code, e.Usage],
+        LanguageNotFoundException e     => [e.Code],
+        NoLanguageConfiguredException   => [],
+        BaseLanguageRequiredException e => [e.EntityName, e.BaseLanguage, e.RequestedLanguage],
+        _                               => null
+    };
+
+    private static string Localize(IStringLocalizer? localizer, string key, string fallback, object[] arguments)
+    {
+        if (localizer is null)
+            return fallback;
+
+        var message = localizer[key, arguments];
+        return message.ResourceNotFound ? fallback : message.Value;
+    }
 }
+
+/// <summary>Names the library's own messages for <see cref="IStringLocalizer{T}"/>.</summary>
+internal sealed class MultiLingualMessages;
 
 /// <summary>
 /// Answers <see cref="MultiLingualException"/>s thrown anywhere in the application — for
