@@ -44,7 +44,7 @@ public static class DbInitializer
 
         // Warm the catalog now, before any write transaction is open. The save interceptor
         // validates language codes mid-transaction; having them cached keeps it from opening a
-        // second connection against a locked SQLite file.
+        // second connection mid-save (and, on SQLite, against a locked file).
         await catalog.GetAllAsync(ct);
 
         // English is the BASE language, so its values are assigned to the properties and land in

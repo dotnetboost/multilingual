@@ -105,16 +105,19 @@ if (request.Name is not null)
 await db.SaveChangesAsync(ct);
 ```
 
-`samples/SampleApp` is a complete, runnable version of this — SQLite, Scalar UI, seeded data, and
-configured in base-language mode so `Products.Name` is a real column you can see in any SQL
-client. `samples/SampleApp/SampleApp.http` walks every behaviour below, edge cases included:
+`samples/SampleApp` is a complete, runnable version of this — PostgreSQL, Scalar UI, seeded data,
+and configured in base-language mode so `Products.Name` is a real column you can see in any SQL
+client. With Docker running, one command starts it together with the database, a browser SQL
+client and the dashboard:
 
 ```bash
-dotnet run --project samples/SampleApp    # http://localhost:5160
+dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost    # API on http://localhost:5160
 ```
 
-To click through it instead, [`clients/dashboard`](clients/dashboard) is a Nuxt web UI for the
-language endpoints and the sample's content — see [docs/dashboard.md](docs/dashboard.md).
+See [docs/aspire.md](docs/aspire.md) for what comes up, switching to SQL Server or SQLite, and
+running the API on its own. `samples/SampleApp/SampleApp.http` walks every behaviour below, edge
+cases included. To click through it instead, [`clients/dashboard`](clients/dashboard) is a Nuxt web
+UI for the language endpoints and the sample's content — see [docs/dashboard.md](docs/dashboard.md).
 
 ## How it works
 

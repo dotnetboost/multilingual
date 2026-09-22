@@ -40,7 +40,7 @@ public sealed class ProductsController(
     /// </para>
     /// </summary>
     /// <param name="categoryId">Only products in this category.</param>
-    /// <param name="search">Part of the name, in the requested language (case-insensitive for ASCII on SQLite).</param>
+    /// <param name="search">Part of the name, in the requested language (case-insensitive: PostgreSQL <c>ILIKE</c>).</param>
     /// <param name="sort"><c>name</c> or <c>-name</c> for the translated name; the id otherwise.</param>
     /// <param name="ct">Cancellation.</param>
     [HttpGet]
@@ -61,8 +61,9 @@ public sealed class ProductsController(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
+            // ILIKE: PostgreSQL's LIKE is case-sensitive. On SQL Server or SQLite, EF.Functions.Like.
             var pattern = $"%{search.Trim()}%";
-            query = query.WhereTranslation(db, p => p.Name, name => name != null && EF.Functions.Like(name, pattern));
+            query = query.WhereTranslation(db, p => p.Name, name => name != null && EF.Functions.ILike(name, pattern));
         }
 
         query = sort?.Trim().ToLowerInvariant() switch

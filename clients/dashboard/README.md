@@ -17,19 +17,20 @@ npm install
 
 ## Development
 
-The dashboard needs the API running. From the repository root:
+The easiest way is the Aspire AppHost, which starts PostgreSQL, the API and this dashboard with the
+variables below already set. From the repository root:
 
 ```bash
-dotnet run --project samples/SampleApp
+dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost
 ```
 
-Then, in `clients/dashboard`:
+To run the dashboard on its own against an API that is already up, in `clients/dashboard`:
 
 ```bash
 npm run dev
 ```
 
-The dashboard is at `http://localhost:3000`.
+It is then at `http://localhost:3000`.
 
 ## Configuration
 

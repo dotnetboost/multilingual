@@ -2,6 +2,8 @@ using System.Text.Json.Serialization;
 using DotNetBoost.MultiLingual.API;
 using DotNetBoost.MultiLingual.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using SampleApp.Data;
 using SampleApp.Infrastructure;
 using SampleApp.Infrastructure.OpenApi;
@@ -9,8 +11,19 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("Default")
-                       ?? "Data Source=multilingual.db";
+// OpenTelemetry, health checks, service discovery and resilient HttpClients. Everything this
+// registers is inert when the app runs standalone; under the AppHost it is what makes the traces,
+// metrics and logs show up on the Aspire dashboard.
+builder.AddServiceDefaults();
+
+// "multilingualdb" is the resource name from aspire/DotNetBoost.MultiLingual.AppHost/AppHost.cs;
+// the AppHost injects ConnectionStrings__multilingualdb pointing at its container. Run the sample
+// on its own and you supply it yourself, e.g. in the environment:
+//   ConnectionStrings__multilingualdb="Host=localhost;Database=multilingual;Username=postgres;Password=…"
+var connectionString = builder.Configuration.GetConnectionString("multilingualdb")
+    ?? throw new InvalidOperationException(
+        "ConnectionStrings:multilingualdb is not set. Start the sample through the AppHost "
+        + "(dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost), or set it to a PostgreSQL database.");
 
 // ── MultiLingual ─────────────────────────────────────────────────────────────
 // The engine, with EF Core as the provider. AppDbContext holds Translations and Languages.
@@ -45,10 +58,61 @@ builder.Services
 //
 // Left out here: this sample is one process, so there is nobody to tell.
 
-// The (sp, options) overload, so the interceptors are resolved per request and see its language.
+// ─────────────────────────────────────────────────────────────────────────────
+//  Database — ACTIVE: PostgreSQL (Entity Framework Core)
+//
+//  Every alternative below is written out in full and commented — to switch, comment this block,
+//  uncomment the one you want, and flip the matching ItemGroup in SampleApp.csproj and the
+//  database block in AppHost.cs.
+//
+//  The (sp, options) overload, so the interceptors are resolved per request and see its language.
+// ─────────────────────────────────────────────────────────────────────────────
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
-    .UseSqlite(connectionString)
+    .UseNpgsql(
+        connectionString,
+        // A cold Postgres container refuses a few connections before it accepts any, so retry
+        // transient failures instead of failing the first request after a restart. Bounded
+        // deliberately: the readiness probe below runs through this same strategy, and the default
+        // policy (6 retries backing off to 30s) makes it take about a minute to report a database
+        // that is plainly gone. The save interceptor runs each save inside the strategy, so a retry
+        // replays the entity rows and their translations together.
+        npgsql => npgsql.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(2),
+            errorCodesToAdd: null))
     .UseMultiLingual(sp));
+
+// Written out because the plain provider is used rather than Aspire's EF Core client integration:
+//   readiness — without it /health answers Healthy while Postgres is unreachable, and the
+//               AppHost's WithHttpHealthCheck("/health") would let the dashboard start anyway.
+//   telemetry — Npgsql's ActivitySource and Meter, so a trace on the Aspire dashboard shows the SQL
+//               a request ran — the Translations joins included — instead of stopping at the HTTP
+//               span, and the Metrics page carries the connection-pool counters.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>();
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing.AddSource("Npgsql"))
+    .WithMetrics(metrics => metrics.AddMeter("Npgsql"));
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Database — ALTERNATIVE: SQL Server (Entity Framework Core)
+//  SampleApp.csproj: Microsoft.EntityFrameworkCore.SqlServer
+// ─────────────────────────────────────────────────────────────────────────────
+// builder.Services.AddDbContext<AppDbContext>((sp, options) => options
+//     .UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure())
+//     .UseMultiLingual(sp));
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Database — ALTERNATIVE: SQLite (Entity Framework Core, no container)
+//  SampleApp.csproj: Microsoft.EntityFrameworkCore.Sqlite
+//  The zero-infrastructure option: `dotnet run` here with no AppHost at all. Replace the
+//  connection string above with "Data Source=multilingual.db" and drop the Npgsql health check
+//  and telemetry lines.
+// ─────────────────────────────────────────────────────────────────────────────
+// builder.Services.AddDbContext<AppDbContext>((sp, options) => options
+//     .UseSqlite(connectionString)
+//     .UseMultiLingual(sp));
 
 builder.Services.AddControllers(options =>
     {
@@ -81,6 +145,9 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+
+// /health and /alive, polled by the AppHost to decide when the dashboard may start.
+app.MapDefaultEndpoints();
 
 app.UseExceptionHandler();
 

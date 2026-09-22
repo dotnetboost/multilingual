@@ -10,10 +10,26 @@
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.EntityFrameworkCore/DotNetBoost.MultiLingual.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.API/DotNetBoost.MultiLingual.API.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Localization/DotNetBoost.MultiLingual.Localization.csproj" />
+    <!-- OpenTelemetry, health checks, service discovery and resilient HttpClients. -->
+    <ProjectReference Include="../../aspire/DotNetBoost.MultiLingual.ServiceDefaults/DotNetBoost.MultiLingual.ServiceDefaults.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
-    <!-- SQLite, so there is nothing to install. Swap for Npgsql.EntityFrameworkCore.PostgreSQL or
-         Microsoft.EntityFrameworkCore.SqlServer and change one line in Program.cs. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+
+  <!--
+    Database. Exactly one group below is active; it must match the active block in Program.cs
+    and the container started by aspire/DotNetBoost.MultiLingual.AppHost.
+  -->
+  <ItemGroup Label="Database — ACTIVE: PostgreSQL (EF Core)">
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup Label="Database — ALTERNATIVE: SQL Server (EF Core)">
+    <!-- <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" /> -->
+  </ItemGroup>
+
+  <ItemGroup Label="Database — ALTERNATIVE: SQLite (EF Core, no container)">
+    <!-- <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" /> -->
   </ItemGroup>
 </Project>

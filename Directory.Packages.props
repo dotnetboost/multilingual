@@ -23,6 +23,31 @@
     <PackageVersion Include="Scalar.AspNetCore" Version="2.17.1" />
   </ItemGroup>
 
+  <!-- Aspire: aspire/ and samples/SampleApp only, never a shipped package. Same versions as
+       DotNetBoost.Settings, so the two AppHosts share one restored Aspire bundle. -->
+  <ItemGroup Label="Aspire — AppHost (orchestration)">
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.5.2" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.2" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.5.2" />
+    <!-- Referenced only when the matching database block in AppHost.cs is uncommented. -->
+    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.5.2" />
+  </ItemGroup>
+
+  <ItemGroup Label="Aspire — consumed by the sample API">
+    <!-- Backs the AddDbContextCheck<AppDbContext>() readiness probe in samples/SampleApp. -->
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup Label="Aspire — service defaults (telemetry, resilience, discovery)">
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.9.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+  </ItemGroup>
+
   <!--
     Future providers. Uncomment alongside the matching src/ project; the versions match
     DotNetBoost.Settings so both libraries can share one driver in the same application.

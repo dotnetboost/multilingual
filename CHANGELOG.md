@@ -103,6 +103,16 @@ keeps the versions its runtime ships.
   in any language and edits each one per language, side by side. Nitro proxies the API, so no CORS
   setup is needed.
 
+### Aspire
+- `aspire/DotNetBoost.MultiLingual.AppHost` starts PostgreSQL (with pgweb), the sample API and the
+  dashboard from one `dotnet run` (or `aspire run`), injecting the connection string and every
+  dashboard URL. SQL Server and SQLite are written out in full next to it, commented.
+- `aspire/DotNetBoost.MultiLingual.ServiceDefaults`: OpenTelemetry over OTLP (Npgsql's traces and
+  metrics included), `/health` with a `DbContext` check and `/alive`, service discovery and
+  resilient `HttpClient` defaults.
+- The sample runs on PostgreSQL instead of SQLite, with a bounded retry-on-failure strategy and a
+  case-insensitive (`ILIKE`) product search.
+
 ### Known limitations
 Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
 The README lists them all, with the reasons.

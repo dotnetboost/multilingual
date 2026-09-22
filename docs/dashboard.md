@@ -5,11 +5,19 @@ the language endpoints and the sample's content, built on the
 [Nuxt UI dashboard template](https://github.com/nuxt-ui-templates/dashboard).
 
 ```bash
-dotnet run --project samples/SampleApp   # the API, http://localhost:5160
-npm install --prefix clients/dashboard && npm run dev --prefix clients/dashboard
+dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost
 ```
 
-The dashboard is at `http://localhost:3000`, the API reference at `http://localhost:5160/scalar`.
+The AppHost starts PostgreSQL, the API and the dashboard, and wires them together — the dashboard's
+link is on the Aspire dashboard, the API reference at `http://localhost:5160/scalar`. See
+[aspire.md](aspire.md).
+
+Against an API you run yourself, start the dashboard on its own; it is then at
+`http://localhost:3000`:
+
+```bash
+npm install --prefix clients/dashboard && npm run dev --prefix clients/dashboard
+```
 
 ## Languages
 
