@@ -4,7 +4,8 @@ A [Nuxt 4](https://nuxt.com) single-page client for the language endpoints that
 `DotNetBoost.MultiLingual.API` maps, and for the translatable content of the sample app. A sidebar
 links to **Languages**, where languages are added, edited, activated, promoted to default and
 purged, and to **Content**, where a top menu holds one entry per `[MultiLingual]` entity — each one
-lists its items in a language of your choice and edits them in every language side by side.
+lists its items in a language of your choice, creates and deletes them, and edits them in every
+language side by side.
 
 Built on the [Nuxt UI dashboard template](https://github.com/nuxt-ui-templates/dashboard)
 (collapsible sidebar, command palette, light/dark mode, theme picker).
@@ -60,6 +61,7 @@ so the editor reads it from the item itself, and never offers to clear it.
 | `app/composables/useContentItem.ts` | One item in every active language: load, dirty-tracking, save, clear |
 | `app/components/content/Browser.vue` | Lists one content type in the chosen `Accept-Language` |
 | `app/components/content/Editor.vue` | Edits one item, one card per language |
+| `app/components/content/CreateModal.vue` | Creates an item: `POST api/{route}` in one language |
 | `app/pages/content.vue` | Top menu, one entry per content type |
 | `server/api/[...path].ts` | Proxy to the .NET API |
 
@@ -71,8 +73,20 @@ they came back, in the request's language.
 **Content** endpoints belong to the application, not the library. The registry describes the
 sample's: `GET api/{route}` and `GET api/{route}/{id}` read in `Accept-Language`,
 `PUT api/{route}/{id}` writes the supplied fields in it, and `GET api/{route}/{id}/translations`
-returns every stored language. An application with the same shape can list its own entities
-there.
+returns every stored language, `POST api/{route}` creates an item and `DELETE api/{route}/{id}`
+deletes one. An application with the same
+shape can list its own entities there.
+
+**New product** / **New category** asks for the untranslated properties the registry lists under
+`create` — SKU, price and category; slug and display order — and the translatable fields in one
+language, sent as `Accept-Language`. With a base language that language is fixed to it, because the
+API only creates in the base language. The new item then opens in the editor, where the other
+languages are added.
+
+The bin at the end of each row deletes the item, after a confirmation. Its translations go with it
+in every language — the save interceptor removes them in the same transaction — and the registry's
+`deleteNote` says what else the endpoint does: deleting a category keeps its products, with no
+category.
 
 Each language saves on its own, with that language in `Accept-Language`, and sends only the fields
 that changed — a field left out means "leave it alone", so other fields in that language, and every
@@ -83,7 +97,7 @@ what reads in that language fall back to. **Clear translation** calls
 ## Adding a content type
 
 1. Add an entry to `contentTypes` in `app/utils/content.ts`, with `route` matching the controller
-   and `fields` listing its `[MultiLingual]` properties.
+   `fields` listing its `[MultiLingual]` properties, and `create` its untranslated ones.
 2. Add a page under `app/pages/content/` that renders `<ContentBrowser :type="…" />`.
 
 The sidebar and the top menu both build from the registry, so no other file needs to change.

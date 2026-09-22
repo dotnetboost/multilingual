@@ -35,6 +35,12 @@ One tab per `[MultiLingual]` entity of [`samples/SampleApp`](../samples/SampleAp
 in its toolbar as `Accept-Language`, so it is exactly what a client in that language receives,
 fallbacks included; a badge per language shows which ones each item is actually translated into.
 
+**New product** and **New category** create an item: its untranslated properties, and its
+translatable fields in the base language — the only one the sample's API creates in, since every
+other language hangs off the base value. The new item opens straight in the editor, ready for its
+other languages. The bin at the end of a row deletes the item, and its translations with it in every
+language; deleting a category keeps its products, with no category.
+
 Selecting a row opens the item in every active language, one card each. A card saves on its own, as
 `PUT api/products/{id}` with that language in `Accept-Language`, and sends only the fields you
 changed. With the sample's base language, English is the `Products` row itself; every other

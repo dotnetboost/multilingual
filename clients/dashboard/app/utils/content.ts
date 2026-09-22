@@ -22,7 +22,12 @@ export const contentTypes: ContentType[] = [
       { key: 'name', label: 'Name' },
       { key: 'description', label: 'Description', multiline: true }
     ],
-    clearable: true
+    clearable: true,
+    create: [
+      { key: 'sku', label: 'SKU', description: 'Unique, up to 64 characters. The same in every language.', type: 'text', required: true, maxLength: 64 },
+      { key: 'price', label: 'Price', type: 'number', min: 0, step: 0.01 },
+      { key: 'categoryId', label: 'Category', type: 'reference', reference: 'categories' }
+    ]
   },
   {
     route: 'categories',
@@ -36,7 +41,12 @@ export const contentTypes: ContentType[] = [
       { key: 'name', label: 'Name' },
       { key: 'description', label: 'Description', multiline: true }
     ],
-    clearable: false
+    clearable: false,
+    create: [
+      { key: 'slug', label: 'Slug', description: 'Unique, up to 128 characters. Opted out with [NotMultiLingual], so it is the same in every language.', type: 'text', required: true, maxLength: 128 },
+      { key: 'displayOrder', label: 'Display order', type: 'number', step: 1 }
+    ],
+    deleteNote: 'Its products are kept, with no category.'
   }
 ]
 

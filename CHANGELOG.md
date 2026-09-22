@@ -100,7 +100,7 @@ keeps the versions its runtime ships.
 ### Dashboard
 - A Nuxt 4 single-page client in `clients/dashboard`, built on the Nuxt UI dashboard template: a
   Languages page over `MapLanguageEndpoints()`, and a Content page that lists the sample's entities
-  in any language and edits each one per language, side by side. Nitro proxies the API, so no CORS
+  in any language, creates and deletes them, and edits each one per language, side by side. Nitro proxies the API, so no CORS
   setup is needed.
 
 ### Aspire

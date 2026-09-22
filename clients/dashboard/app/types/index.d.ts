@@ -42,6 +42,22 @@ export interface ContentField {
   multiline?: boolean
 }
 
+/** An untranslated property the create form asks for, e.g. `sku` or `price`. */
+export interface CreateField {
+  /** camelCase name, as it appears in the request body. */
+  key: string
+  label: string
+  description?: string
+  /** `reference` renders a picker over the items of another content type. */
+  type: 'text' | 'number' | 'reference'
+  required?: boolean
+  maxLength?: number
+  min?: number
+  step?: number
+  /** For `reference`: the route of the content type it points at, e.g. `categories`. */
+  reference?: string
+}
+
 /**
  * An entity with `[MultiLingual]` properties, as surfaced by the dashboard. The endpoints are
  * the application's own, not the library's, so each content type names the shape it has.
@@ -62,6 +78,10 @@ export interface ContentType {
   fields: ContentField[]
   /** Whether the API offers `DELETE api/{route}/{id}/translations/{code}`. */
   clearable: boolean
+  /** The untranslated properties `POST api/{route}` takes, alongside the translatable ones. */
+  create: CreateField[]
+  /** What else `DELETE api/{route}/{id}` does, for the confirmation. */
+  deleteNote?: string
 }
 
 /** One entity as the content endpoints return it, resolved to one language. */

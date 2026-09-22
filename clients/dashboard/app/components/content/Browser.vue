@@ -11,6 +11,7 @@ const props = defineProps<{
   type: ContentType
 }>()
 
+const toast = useToast()
 const { active, defaultLanguage, isBase, ensureLoaded, loadError: languagesError } = useLanguages()
 
 const readIn = ref('')
@@ -20,6 +21,10 @@ const coverage = ref<Record<number, string[]>>({})
 const pending = ref(true)
 const loadError = ref('')
 const selected = ref<number | null>(null)
+const creating = ref(false)
+/** The item awaiting confirmation of its delete. */
+const deleting = ref<ContentItem | null>(null)
+const removing = ref(false)
 
 /** The language the API actually answered in — not necessarily the one asked for. */
 const resolved = computed(() => items.value[0]?.language)
@@ -69,10 +74,46 @@ const columns = computed<TableColumn<ContentItem>[]>(() => [
   { accessorKey: 'id', header: '#' },
   { accessorKey: props.type.identifier, header: humanizeKey(props.type.identifier) },
   ...props.type.fields.map(field => ({ accessorKey: field.key, header: field.label })),
-  { id: 'coverage', header: 'Translated into' }
+  { id: 'coverage', header: 'Translated into' },
+  { id: 'actions', header: '' }
 ])
 
 const selectedItem = computed(() => items.value.find(item => item.id === selected.value))
+
+/**
+ * Deletes the item awaiting confirmation. Its translations go with it: the save interceptor
+ * removes them in the same transaction, so the application's endpoint never mentions them.
+ */
+async function onDelete() {
+  const item = deleting.value
+  if (!item) {
+    return
+  }
+
+  removing.value = true
+
+  try {
+    const result = await $fetch<{ message?: string }>(`/api/${props.type.route}/${item.id}`, { method: 'DELETE' })
+
+    toast.add({ title: `${props.type.name} deleted`, description: result.message, icon: 'i-lucide-trash-2', color: 'success' })
+
+    if (selected.value === item.id) {
+      selected.value = null
+    }
+    deleting.value = null
+    await load()
+  } catch (error) {
+    toast.add({ title: 'Delete failed', description: problemMessage(error), icon: 'i-lucide-triangle-alert', color: 'error' })
+  } finally {
+    removing.value = false
+  }
+}
+
+/** Opens the new item in the editor, where its other languages are added. */
+async function onCreated(id: number) {
+  await load()
+  selected.value = id
+}
 
 watch(readIn, (next, previous) => {
   if (previous) {
@@ -106,6 +147,11 @@ onMounted(load)
           :loading="pending"
           aria-label="Refresh"
           @click="load"
+        />
+        <UButton
+          icon="i-lucide-plus"
+          :label="`New ${type.name.toLowerCase()}`"
+          @click="creating = true"
         />
       </div>
     </UPageCard>
@@ -176,7 +222,31 @@ onMounted(load)
           </UTooltip>
         </div>
       </template>
+
+      <template #actions-cell="{ row }">
+        <div class="flex justify-end">
+          <UButton
+            icon="i-lucide-trash-2"
+            color="neutral"
+            variant="ghost"
+            :aria-label="`Delete ${row.original[type.identifier]}`"
+            @click.stop="deleting = row.original"
+          />
+        </div>
+      </template>
     </UTable>
+
+    <ContentCreateModal v-model:open="creating" :type="type" @created="onCreated" />
+
+    <ConfirmModal
+      :open="deleting !== null"
+      :title="`Delete ${type.name.toLowerCase()} ${deleting?.[type.identifier] ?? ''}?`"
+      :description="['It is removed in every language, with all of its translations.', type.deleteNote].filter(Boolean).join(' ')"
+      :confirm-label="`Delete ${type.name.toLowerCase()}`"
+      :loading="removing"
+      @update:open="!$event && (deleting = null)"
+      @confirm="onDelete"
+    />
 
     <USlideover
       :open="selected !== null"

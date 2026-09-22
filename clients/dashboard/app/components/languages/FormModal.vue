@@ -62,6 +62,16 @@ function validate(values: typeof state): FormError[] {
   return errors
 }
 
+/** Enter submits, except mid-composition, where it belongs to the input method. */
+function onEnter(event: KeyboardEvent) {
+  if (event.isComposing) {
+    return
+  }
+
+  event.preventDefault()
+  form.value?.submit()
+}
+
 async function submit() {
   const direction = state.direction === 'auto' ? undefined : state.direction
 
@@ -92,7 +102,7 @@ async function submit() {
         :validate="validate"
         class="flex flex-col gap-4"
         @submit="submit"
-        @keydown.enter.prevent="form?.submit()"
+        @keydown.enter="onEnter"
       >
         <UFormField
           name="code"
