@@ -16,7 +16,9 @@ before 1.0.0.
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | The EF Core provider: mapping, interceptors, translated queries. |
 | `DotNetBoost.MultiLingual.API` | `Accept-Language` middleware, language endpoints, problem details, OpenAPI. |
 
-All three target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL and SQLite.
+All three target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL and SQLite. On
+`net8.0` they need only the 8.0 line of `Microsoft.Extensions` (and EF Core 8), so an application
+keeps the versions its runtime ships.
 
 ### Declaring translatable content
 - `[MultiLingual]` on a class (every string property) or on individual properties, with

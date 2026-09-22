@@ -23,4 +23,14 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    No transitive pinning for the shipped packages: their NuGet dependencies should be exactly
+    what they reference, at the minimum versions they need. See Directory.Packages.props.
+  -->
+  <PropertyGroup>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    <!-- Selects the minimum-version dependency table in Directory.Packages.props. -->
+    <IsShippedLibrary>true</IsShippedLibrary>
+  </PropertyGroup>
+
 </Project>

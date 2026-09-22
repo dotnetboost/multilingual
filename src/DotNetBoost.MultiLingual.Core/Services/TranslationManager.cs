@@ -20,13 +20,18 @@ internal sealed partial class TranslationManager(
     MultiLingualOptions options,
     ILogger<TranslationManager> logger) : ITranslationManager, ITranslationWriter
 {
+    // A field, not the primary-constructor parameter: the net8.0 [LoggerMessage] generator (from
+    // the 8.0 logging packages) only finds a logger held in a field, and writes invalid code for a
+    // captured parameter. The parameter is used here, in the initializer, and nowhere else.
+    private readonly ILogger<TranslationManager> _logger = logger;
+
     private static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> NoValues =
         new Dictionary<string, IReadOnlyDictionary<string, string?>>();
 
     public ITranslationWriter WithStore(ITranslationStore store)
     {
         ArgumentNullException.ThrowIfNull(store);
-        return new TranslationManager(store, catalog, languageContext, keys, writeBuffer, tracker, options, logger);
+        return new TranslationManager(store, catalog, languageContext, keys, writeBuffer, tracker, options, _logger);
     }
 
     // ================================================================== read

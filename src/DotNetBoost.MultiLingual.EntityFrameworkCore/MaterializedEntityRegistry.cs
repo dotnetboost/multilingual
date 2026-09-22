@@ -18,6 +18,11 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 /// <param name="logger">Reports the registry filling up.</param>
 internal sealed partial class MaterializedEntityRegistry(ILogger<MaterializedEntityRegistry> logger)
 {
+    // A field, not the primary-constructor parameter: the net8.0 [LoggerMessage] generator (from
+    // the 8.0 logging packages) only finds a logger held in a field, and writes invalid code for a
+    // captured parameter. The parameter is used here, in the initializer, and nowhere else.
+    private readonly ILogger<MaterializedEntityRegistry> _logger = logger;
+
     private readonly List<Pending> _pending = [];
     private readonly HashSet<object> _seen = new(ReferenceEqualityComparer.Instance);
     private bool _overflowed;

@@ -1,19 +1,17 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!--
+      Transitive pinning lifts every pinned version above to a direct dependency of the project.
+      Right for tests and samples, where the security pins below must win; wrong for the shipped
+      libraries, where it would add packages they never use to their NuGet dependencies and force
+      those versions onto applications. src/Directory.Build.props turns it off for them, so this
+      is only a default.
+    -->
+    <CentralPackageTransitivePinningEnabled Condition="'$(CentralPackageTransitivePinningEnabled)' == ''">true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
-  <!-- Versions deliberately track DotNetBoost.Settings, so an application using both packages
-       never has to reconcile two different Microsoft.Extensions.* floors. -->
   <ItemGroup Label="Microsoft">
-    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <!-- 10.0.11: the first Microsoft.AspNetCore.OpenApi release that requires the patched
          Microsoft.OpenApi [2.7.5, 3.0.0) (GHSA-v5pm-xwqc-g5wc). Referenced by the API package
          on net10.0 only — the transformer API it builds on does not exist in the 8.x line. -->
@@ -71,6 +69,45 @@
   <PropertyGroup>
     <_Net8 Condition="'$(TargetFramework)' == 'net8.0'">true</_Net8>
   </PropertyGroup>
+
+  <!--
+    Microsoft.Extensions.* follow the runtime too. They are MINIMUM versions for the shipped
+    packages: a net8.0 application keeps the 8.0 line its runtime ships (and services), and one
+    that wants a newer line can still take it — including through DotNetBoost.Settings, which
+    NuGet resolves together with these by picking the highest. Requiring 10.x on net8.0 would
+    force it on everyone, and fail restore (NU1605) for any application pinning 8.x itself.
+
+    On net8.0 the shipped libraries (IsShippedLibrary, set in src/Directory.Build.props) take the
+    LOWEST version with the APIs they use — 8.0.0 — so no application on the 8.0 line can pin
+    below them. Everything else takes the latest patch, which the test projects need anyway:
+    EF Core 8.0.30 itself requires those.
+  -->
+  <ItemGroup Label="Microsoft.Extensions — net8.0, shipped libraries" Condition="'$(_Net8)' == 'true' and '$(IsShippedLibrary)' == 'true'">
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft.Extensions — net8.0, tests and samples" Condition="'$(_Net8)' == 'true' and '$(IsShippedLibrary)' != 'true'">
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft.Extensions — net10.0" Condition="'$(_Net8)' != 'true'">
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+  </ItemGroup>
 
   <ItemGroup Label="EF Core / ASP.NET Core — net8.0" Condition="'$(_Net8)' == 'true'">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
