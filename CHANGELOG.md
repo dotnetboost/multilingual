@@ -56,12 +56,13 @@ keeps the versions its runtime ships.
 - Synchronous versions (`ToLocalizedList`, …) that never block on asynchronous work.
 
 ### Querying on translated text
-- `SelectTranslated(db, p => new Dto { Name = p.Name, Category = p.Category!.Name })` projects in the
-  request's language, through navigations and nested collections.
-- `WhereTranslation` and `OrderByTranslation` / `ThenByTranslation` (and `…Descending`) filter and
-  sort in the database, on the value a read would show.
+- `AsTranslated(db)`, then plain LINQ: every translatable property read in `Where`, `OrderBy` and
+  `Select` — through navigations and nested collections — is the request's language with its
+  fallback, in the database. Ordinary column filters are untouched and keep their indexes.
+- The language travels as SQL parameters (one per language; entity and property names are
+  literals), so EF's compiled-query cache is shared across languages without mixing them up.
 - In the default mode, a plain query that reads a translatable property is refused with an error
-  naming the property and these helpers, instead of silently returning `null`.
+  naming the property and `AsTranslated`, instead of silently returning `null`.
 
 ### Writing
 - Assign the property and call `SaveChanges`: the value is stored for the request's language, and

@@ -307,8 +307,8 @@ GET {{host}}/api/categories/3/translations
 ### 5. Search, sort and projections — on the TRANSLATED text, in the database
 ### ------------------------------------------------------------------
 ### A plain LINQ Where/OrderBy/Select on Name would only ever see the English column in this
-### sample. WhereTranslation, OrderByTranslation and SelectTranslated use the requested language,
-### falling back exactly as a read does.
+### sample. After AsTranslated(db) the same plain LINQ uses the requested language, falling back
+### exactly as a read does.
 
 ### Search in French: matches "Ordinateur portable 14 pouces"
 GET {{host}}/api/products?search=portable
@@ -333,7 +333,7 @@ Accept-Language: ar
 ### Unknown sort -> 400
 GET {{host}}/api/products?sort=price
 
-### A DTO projection with the category's name, both translated, in one query (SelectTranslated).
+### A DTO projection with the category's name, both translated, in one query (AsTranslated).
 ### "books" has no French name, so NOTE-A5's category falls back to "Books".
 GET {{host}}/api/products/summaries
 Accept-Language: fr

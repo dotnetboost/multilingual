@@ -31,8 +31,9 @@ public sealed class ProductsController(
     /// <para>
     /// <c>search</c> and <c>sort</c> work on the TRANSLATED name — the one this response shows —
     /// in the database. A plain <c>Where(p =&gt; p.Name.Contains(…))</c> would only ever search
-    /// the English column; <c>WhereTranslation</c> / <c>OrderByTranslation</c> search and sort
-    /// the requested language, falling back exactly as the read does.
+    /// the English column; after <c>AsTranslated(db)</c> the same plain LINQ searches and sorts
+    /// the requested language, falling back exactly as the read does. The category filter stays
+    /// an ordinary indexed column filter.
     /// </para>
     /// </summary>
     /// <param name="categoryId">Only products in this category.</param>
@@ -48,7 +49,7 @@ public sealed class ProductsController(
         [FromQuery] string? sort,
         CancellationToken ct)
     {
-        var query = db.Products.AsNoTracking();
+        var query = db.Products.AsNoTracking().AsTranslated(db);
 
         if (categoryId is not null)
         {
@@ -59,14 +60,14 @@ public sealed class ProductsController(
         {
             // ILIKE: PostgreSQL's LIKE is case-sensitive. On SQL Server or SQLite, EF.Functions.Like.
             var pattern = $"%{search.Trim()}%";
-            query = query.WhereTranslation(db, p => p.Name, name => name != null && EF.Functions.ILike(name, pattern));
+            query = query.Where(p => p.Name != null && EF.Functions.ILike(p.Name, pattern));
         }
 
         query = sort?.Trim().ToLowerInvariant() switch
         {
             null or "" or "id" => query.OrderBy(p => p.Id),
-            "name"             => query.OrderByTranslation(db, p => p.Name).ThenBy(p => p.Id),
-            "-name"            => query.OrderByTranslationDescending(db, p => p.Name).ThenBy(p => p.Id),
+            "name"             => query.OrderBy(p => p.Name).ThenBy(p => p.Id),
+            "-name"            => query.OrderByDescending(p => p.Name).ThenBy(p => p.Id),
             _                  => throw new ValidationException("Products.UnknownSort", sort)
         };
 
@@ -82,8 +83,9 @@ public sealed class ProductsController(
     /// <para>
     /// This is the projection shape most read endpoints use, and a plain <c>Select</c> cannot do
     /// it here: <c>p.Name</c> and <c>p.Category.Name</c> are English columns in this sample's
-    /// base-language mode, so it would answer every language in English. <c>SelectTranslated</c>
-    /// reads each translatable property in the request's language instead, navigations included.
+    /// base-language mode, so it would answer every language in English. After
+    /// <c>AsTranslated(db)</c> each translatable property is read in the request's language
+    /// instead, navigations included.
     /// </para>
     /// </summary>
     [HttpGet("summaries")]
@@ -94,8 +96,9 @@ public sealed class ProductsController(
 
         var summaries = await db.Products
             .AsNoTracking()
+            .AsTranslated(db)
             .OrderBy(p => p.Id)
-            .SelectTranslated(db, p => new ProductSummaryResponse(p.Id, p.Sku, p.Price, p.Name, p.Category!.Name, languageCode))
+            .Select(p => new ProductSummaryResponse(p.Id, p.Sku, p.Price, p.Name, p.Category!.Name, languageCode))
             .ToListAsync(ct);
 
         return Ok(summaries);

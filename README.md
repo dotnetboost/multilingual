@@ -228,31 +228,56 @@ db.Products.Select(p => new ProductDto { Name = p.Name })   // default mode: ref
 db.Products.Where(p => p.Name.Contains(term))               // default mode: refused
 ```
 
-These do, building the lookup over the translations table in SQL and reading the value a read
-would show — requested language, then the default, then the base column:
+Call `AsTranslated(db)` once, and the rest is plain LINQ. Every read of a translatable property in
+the query — in `Where`, `OrderBy`, `Select`, through navigations and in nested collections —
+becomes the value a read would show: requested language, then the default, then the base column.
+It all runs in the database, in one SQL statement:
 
 ```csharp
 // Project straight into a DTO — navigations and nested collections included.
 var rows = await db.Products
-    .SelectTranslated(db, p => new ProductDto { Sku = p.Sku, Name = p.Name, Category = p.Category!.Name })
+    .AsTranslated(db)
+    .Select(p => new ProductDto { Sku = p.Sku, Name = p.Name, Category = p.Category!.Name })
     .ToListAsync(ct);
 
-// Filter and sort.
+// Filter and sort — ordinary columns stay ordinary, and keep using their indexes.
 var page = await db.Products
-    .WhereTranslation(db, p => p.Name, name => name!.Contains(term))
-    .OrderByTranslation(db, p => p.Name)          // also …Descending, ThenBy…
+    .AsTranslated(db)
+    .Where(p => p.CategoryId == categoryId && p.Name!.Contains(term))
+    .OrderBy(p => p.Name)
     .Skip(skip).Take(take)
-    .ToLocalizedListAsync(ct);
+    .ToLocalizedListAsync(ct);                    // whole entities: also fill their properties
 ```
 
 Pass the same `db` the query runs on; the language is the current one unless you pass
-`languageCode`. Each translated value is a correlated subquery per language, served by the
-translations key — fine for a page of results, not a substitute for a search engine on a large
-catalogue. Types in an inheritance hierarchy should share one entity name
-(`[MultiLingualEntity]` on the base), since a query over the base type looks rows up by its name.
+`languageCode`. Call it once per query — where in the chain does not matter, it covers the whole
+query. Types in an inheritance hierarchy should share one entity name (`[MultiLingualEntity]` on
+the base), since a query over the base type looks rows up by its name.
 
-In the default mode, a query that reads a translatable property directly is refused with an
-error naming the property and these helpers — rather than EF quietly projecting `null`. In
+*How:* EF compiles a query shape once and reuses it, so `AsTranslated` does not bake the language
+in. It marks the query with the language codes as SQL parameters, and the library's query
+interceptor replaces each translatable property with an indexed lookup that uses them. Entity and
+property names are written into the SQL as literals, so three translated properties in two
+languages cost two parameters.
+
+*Cost.* Each translated value is an indexed lookup per language in the chain. Measured on
+PostgreSQL 17 (warm cache, Arabic with English fallback):
+
+| Products | Page of 20 with translated names | Search on translated name | Sort by translated name, page 1 |
+|---:|---:|---:|---:|
+| 1,000 | < 1 ms | 2 ms | 3 ms |
+| 10,000 | < 1 ms | 23 ms | 26 ms |
+| 100,000 | < 1 ms | 250 ms | 275 ms |
+| 1,000,000 | < 1 ms | 1.8 s | 1.7 s |
+
+Returning translated rows is cheap at any size. Searching or sorting *on* translated text reads it
+for every candidate row, like any `LIKE '%…%'` on a column — so narrow with an ordinary column
+where you can (the same 1M-row search within one category: ~75 ms), keep the base language as a
+real, indexable column (base-language mode), and use a search engine for full-text search over
+large catalogues.
+
+In the default mode, a query that reads a translatable property without `AsTranslated` is refused
+with an error naming the property and `AsTranslated` — rather than EF quietly projecting `null`. In
 base-language mode a plain query is valid and reads the base column, which is sometimes what you
 want, so it is not refused.
 
@@ -298,7 +323,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 | Missing translation falls back to | default language, then `null` | default language, then the base column |
 | Reading the base language costs | 2 queries | 1 query — nothing is fetched |
 | `SELECT * FROM Products` | no names | names, in the base language |
-| Filter/sort in SQL | `WhereTranslation` / `OrderByTranslation` | directly in the base language; those helpers for the others |
+| Filter/sort in SQL | `AsTranslated(db)` | directly in the base language; `AsTranslated(db)` for the others |
 | Adding a translatable property | no migration | a migration, for the new column |
 
 **Why it is not just "the default language".** The default language is a row in the language
