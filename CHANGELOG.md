@@ -7,19 +7,20 @@ All notable changes to this project are documented here. The format follows
 ## [1.0.0-preview.1] - Unreleased
 
 First public release: translatable content for any entity, driven by a `[MultiLingual]` attribute,
-with an Entity Framework Core provider and ASP.NET Core integration. The API may still change
-before 1.0.0.
+with Entity Framework Core and MongoDB providers and ASP.NET Core integration. The API may still
+change before 1.0.0.
 
 | Package | Contents |
 |---|---|
 | `DotNetBoost.MultiLingual.Core` | Attributes, the engine and its contracts. No EF Core or ASP.NET Core dependency. |
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | The EF Core provider: mapping, interceptors, translated queries. |
+| `DotNetBoost.MultiLingual.MongoDb` | The MongoDB provider: two collections, class-map unmapping, session-scoped writes. |
 | `DotNetBoost.MultiLingual.API` | `Accept-Language` middleware, language endpoints, problem details, OpenAPI. |
 | `DotNetBoost.MultiLingual.Localization` | `IStringLocalizer` over JSON files, in the same language as the content. |
 
-All four target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL and SQLite. On
-`net8.0` they need only the 8.0 line of `Microsoft.Extensions` (and EF Core 8), so an application
-keeps the versions its runtime ships.
+All five target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL, SQLite and
+MongoDB 8.0. On `net8.0` they need only the 8.0 line of `Microsoft.Extensions` (and EF Core 8), so an
+application keeps the versions its runtime ships.
 
 ### One service for application code
 - `IMultiLingualManager` is the only service an application injects besides the `DbContext`, in the spirit of
@@ -111,6 +112,26 @@ keeps the versions its runtime ships.
 ### Maintenance
 - `PurgeOrphanedTranslationsAsync()` removes translations left behind by deletes that bypass
   `SaveChanges` — `ExecuteDelete`, database cascades, raw SQL.
+
+### MongoDB
+- `services.AddMultiLingual().UseMongoDb().Build()` — over an `IMongoDatabase` the application
+  registers, a connection string and database name, or a factory for one database per tenant.
+- Translations live in one collection, identified by a unique compound index on
+  `(EntityName, EntityId, PropertyName, LanguageCode)` that a hosted service creates at startup;
+  its leading fields are what every read filters on, so reads need no index of their own. Languages
+  live in a collection where the code IS `_id`.
+- `[MultiLingual]` properties are unmapped from the class map, so they are never stored on the
+  entity's own document — except in base-language mode, where that field is the base language's
+  value.
+- Ids come from the driver's own mapping (`[BsonId]`, the class map, its conventions). An `ObjectId`
+  the driver has not assigned yet counts as no key, so saving an un-inserted document is refused
+  rather than storing its translations under `000000000000000000000000`.
+- `store.WithSession(session)`, with `ITranslationWriter.WithStore`, puts a document and its
+  translations in one transaction. That needs a replica set or a sharded cluster; against a
+  standalone `mongod` each write stands alone.
+- No change tracker to hook, so application code localizes after its own queries and saves through
+  `IMultiLingualManager` — and filtering or sorting on translated values in the database stays an
+  EF Core feature.
 
 ### Extending
 - `ITranslationStore` and `ILanguageStore` for other backends, with contract test suites a provider

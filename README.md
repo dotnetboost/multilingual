@@ -36,8 +36,8 @@ adoptable on a database that already has `Name` and `Description` full of data.
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | EF Core provider. Maps translatable properties according to the configured mode and reads/writes them transparently through interceptors. SQL Server, PostgreSQL, SQLite. |
 | `DotNetBoost.MultiLingual.API` | ASP.NET Core: `Accept-Language` middleware, language management endpoints, ProblemDetails mapping, and (net10.0) an OpenAPI transformer. |
 | `DotNetBoost.MultiLingual.Localization` | `IStringLocalizer` for the application's own messages, read from JSON files in the same language as the content. See [localized messages](#localized-messages). |
+| `DotNetBoost.MultiLingual.MongoDb` | MongoDB provider. Translations in one collection keyed by the natural key; translatable properties unmapped from the entity's own documents. No change tracker to hook, so reads and writes go through `IMultiLingualManager` — see [providers without change tracking](#providers-without-change-tracking). |
 | `DotNetBoost.MultiLingual.Dapper` | *Planned.* |
-| `DotNetBoost.MultiLingual.MongoDb` | *Planned.* |
 
 All packages target `net8.0` and `net10.0`.
 
@@ -565,8 +565,8 @@ translatable. `samples/SampleApp/Resources/ar.json` translates them all.
 
 ## Providers without change tracking
 
-Dapper and MongoDB have no interceptors to hook, so their users call the same
-`IMultiLingualManager` explicitly — reading, saving and deleting translations alongside their own
+MongoDB — and Dapper, when it lands — has no interceptors to hook, so its users call the same
+`IMultiLingualManager` explicitly, reading, saving and deleting translations alongside their own
 queries:
 
 ```csharp
@@ -579,6 +579,45 @@ await multiLingual.For(product).SaveAsync();
 await connection.ExecuteAsync(deleteSql, product);
 await multiLingual.For(product).DeleteAsync();
 ```
+
+### MongoDB
+
+```csharp
+// The driver's client and database, registered as the driver intends.
+services.AddSingleton<IMongoClient>(new MongoClient(connectionString));
+services.AddSingleton(sp => sp.GetRequiredService<IMongoClient>().GetDatabase("shop"));
+
+services.AddMultiLingual()
+        .UseMongoDb()                 // or UseMongoDb(connectionString, "shop")
+        .Build();
+```
+
+`[MultiLingual]` properties are unmapped from the class map, so they are never stored on the
+entity's own document; the unique index on
+`(EntityName, EntityId, PropertyName, LanguageCode)` is created at startup. Ids come from the
+driver's own mapping (`[BsonId]`, the class map, or its conventions), and an `ObjectId` the driver
+has not assigned yet is treated as no key at all — saving such an entity is refused rather than
+storing its translations under `000000000000000000000000`.
+
+To put a document and its translations in one transaction, hand the store the session:
+
+```csharp
+using var session = await client.StartSessionAsync(ct);
+session.StartTransaction();
+
+await dishes.InsertOneAsync(session, dish, cancellationToken: ct);
+await writer.WithStore(store.WithSession(session)).WriteAsync(writes, ct);
+
+await session.CommitTransactionAsync(ct);
+```
+
+A transaction needs a replica set or a sharded cluster. Against a standalone `mongod` each write
+stands alone, and so does the promotion half of a default-language change — it lands before the
+demotion, so a reader may briefly see two defaults rather than none.
+
+Filtering and sorting on translated values in the database is EF Core only: it rewrites the LINQ
+query, and there is no equivalent for a driver query. A MongoDB application filters on what it
+stores, then localizes what it read.
 
 In base-language mode such a provider has one extra duty, because it has no change tracker to ask
 which properties a caller touched. Before saving in a language other than the base one, declare

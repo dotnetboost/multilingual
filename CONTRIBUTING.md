@@ -52,8 +52,8 @@ public member of a shipped package needs XML docs.
   application code injects: keep it small, since every member added to it is one more thing users
   have to understand. The engine services behind it (`ILanguageContext`, `ILanguageCatalog`,
   `ITranslationManager`, `ILanguageManager`) are internal; the sibling packages and tests see them
-  through `InternalsVisibleTo` in `DotNetBoost.MultiLingual.Core.csproj`, and a first-party Dapper
-  or MongoDB package would be added there too.
+  through `InternalsVisibleTo` in `DotNetBoost.MultiLingual.Core.csproj`, as the EF Core and MongoDB
+  packages are, and a first-party Dapper package would be added there too.
 - **Stores stay dumb.** Rules go in the managers, so every provider gets them for free.
 - **A store change needs a contract test.** Add it to `TranslationStoreContractTests` /
   `LanguageStoreContractTests`, so every provider — including the in-memory doubles the other

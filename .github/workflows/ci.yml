@@ -166,7 +166,9 @@ jobs:
       - run: dotnet build --configuration Release --no-restore
 
       # ubuntu-latest ships with a running Docker daemon, which Testcontainers
-      # uses to start real SQL Server and PostgreSQL servers for these tests.
+      # uses to start real SQL Server, PostgreSQL and MongoDB servers for these
+      # tests. MongoDB runs as a single-node replica set, so the provider's
+      # session-scoped transactions are exercised rather than skipped.
       - name: Run integration tests against real databases
         run: |
           dotnet test tests/DotNetBoost.MultiLingual.IntegrationTests \
@@ -301,10 +303,11 @@ jobs:
 
       - name: Pack all library projects
         run: |
-          # Add DotNetBoost.MultiLingual.Dapper / .MongoDb here when those providers land.
+          # Add DotNetBoost.MultiLingual.Dapper here when that provider lands.
           for project in \
             DotNetBoost.MultiLingual.Core \
             DotNetBoost.MultiLingual.EntityFrameworkCore \
+            DotNetBoost.MultiLingual.MongoDb \
             DotNetBoost.MultiLingual.API \
             DotNetBoost.MultiLingual.Localization; do
             dotnet pack "src/$project/$project.csproj" \

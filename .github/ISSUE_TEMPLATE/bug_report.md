@@ -26,4 +26,4 @@ labels: bug
 
 
 **Additional context**
-<!-- Stack trace, logs, provider (EF Core today; Dapper/MongoDB planned), database engine, etc. -->
+<!-- Stack trace, logs, provider (EF Core or MongoDB; Dapper planned), database engine, etc. -->

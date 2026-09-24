@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>DotNetBoost.MultiLingual.MongoDb</PackageId>
+    <Description>
+      MongoDB provider for DotNetBoost.MultiLingual. Translations live in one collection, keyed by
+      (entity name, entity id, property name, language code); translatable properties are unmapped
+      from the entity's own documents and read and written through IMultiLingualManager.
+      There is no change tracker to hook, so application code localizes after a query and saves
+      translations alongside its own writes — see docs/adding-a-provider.md.
+    </Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The stores, the class-map convention and the index service are internals; the tests
+         exercise the stores through the shared contract suites. -->
+    <InternalsVisibleTo Include="DotNetBoost.MultiLingual.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <PackageReference Include="MongoDB.Driver" />
+    <!-- MongoDB.Driver 3.8.1 brings SharpCompress 0.30.1, which carries GHSA-6c8g-7p36-r338.
+         The shipped packages do not pin transitives (see Directory.Packages.props), so lifting the
+         floor for consumers has to be a direct reference here. Drop it once the driver's own
+         dependency reaches 0.48.0 or later. -->
+    <PackageReference Include="SharpCompress" />
+    <!-- IHostedService only, for the one-time index creation. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+</Project>

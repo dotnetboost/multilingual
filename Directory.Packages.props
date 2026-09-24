@@ -48,23 +48,24 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
   </ItemGroup>
 
+  <!-- Versions match DotNetBoost.Settings so both libraries can share one driver in the same
+       application. -->
+  <ItemGroup Label="MongoDB">
+    <PackageVersion Include="MongoDB.Driver" Version="3.8.1" />
+  </ItemGroup>
+
   <!--
-    Future providers. Uncomment alongside the matching src/ project; the versions match
-    DotNetBoost.Settings so both libraries can share one driver in the same application.
+    Future providers. Uncomment alongside the matching src/ project.
 
     <ItemGroup Label="Dapper">
       <PackageVersion Include="Dapper" Version="2.1.79" />
-    </ItemGroup>
-
-    <ItemGroup Label="MongoDB">
-      <PackageVersion Include="MongoDB.Driver" Version="3.8.1" />
-      MongoDB.Driver -> SharpCompress 0.30.1 (GHSA-6c8g-7p36-r338, patched in 0.48.0):
-      <PackageVersion Include="SharpCompress" Version="0.48.1" />
     </ItemGroup>
   -->
 
   <!-- Transitive pins: patched versions for packages flagged by NuGet audit. -->
   <ItemGroup Label="Transitive security pins">
+    <!-- MongoDB.Driver -> SharpCompress 0.30.1 (GHSA-6c8g-7p36-r338, patched in 0.48.0). -->
+    <PackageVersion Include="SharpCompress" Version="0.48.1" />
     <!-- Microsoft.Data.Sqlite -> SQLitePCLRaw.* 2.1.11 (GHSA-2m69-gcr7-jv3q, fixed after 2.1.11). -->
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
     <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
@@ -75,6 +76,7 @@
   <ItemGroup Label="Integration testing">
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
     <PackageVersion Include="Testcontainers.MsSql" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers.MongoDb" Version="4.14.0" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.1.6" />
   </ItemGroup>
 

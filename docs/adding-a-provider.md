@@ -1,6 +1,8 @@
 # Adding a provider
 
-Dapper and MongoDB are planned. This is what either — or any other backend — needs.
+This is what a backend needs. `DotNetBoost.MultiLingual.MongoDb` is the worked example of every
+step below — a provider with no change tracker, unlike the EF Core one — so read it alongside this.
+Dapper is still planned.
 
 ## 1. Implement the two stores
 
@@ -28,9 +30,11 @@ Suggested shapes:
 - **Dapper** — `Translations` / `Languages` tables identical to the EF provider's (see
   `TranslationConfiguration` / `LanguageConfiguration`), so a database can move between providers.
   `MERGE` / `INSERT ... ON CONFLICT` for upserts.
-- **MongoDB** — a `translations` collection with a unique compound index on the natural key
-  (create it from a hosted service, like `DotNetBoost.Settings.MongoDb` does), and a `languages`
-  collection keyed by code.
+- **MongoDB** — as shipped: a `translations` collection whose documents carry the four key fields
+  and no `_id` of their own, with a unique compound index on them created by a hosted service
+  (`MongoIndexInitializer`), and a `languages` collection where the code IS `_id`. The natural key
+  is deliberately NOT a composite `_id`: a query on the sub-fields of `_id` cannot use that index,
+  and the key's leading fields are exactly what every read filters on.
 
 ## 2. Register them
 
@@ -74,13 +78,17 @@ synchronous save.
 
 ## 4. Keep translated properties out of the entity's own storage
 
-- **MongoDB:** unmap them from the class map (`BsonClassMap` → `UnmapMember`) for every type
-  `MultiLingualMetadata.For(type)` returns properties for — but **only when
-  `MultiLingualOptions.HasBaseLanguage` is false**. In base-language mode a translatable property
-  keeps its field, and that field holds the base language's value every missing translation falls
-  back to, so unmapping it would throw the base text away. Check `HasBaseLanguage` before
-  unmapping anything, and `IsBaseLanguage(code)` wherever the provider decides whether a value is
-  a translation or the base value.
+- **MongoDB:** unmap them from the class map for every type `MultiLingualMetadata.For(type)`
+  returns properties for — but **only when `MultiLingualOptions.HasBaseLanguage` is false**. In
+  base-language mode a translatable property keeps its field, and that field holds the base
+  language's value every missing translation falls back to, so unmapping it would throw the base
+  text away. Check `HasBaseLanguage` before unmapping anything, and `IsBaseLanguage(code)` wherever
+  the provider decides whether a value is a translation or the base value.
+
+  The shipped provider does it with an `IClassMapConvention` (`UnmapTranslatablePropertiesConvention`)
+  rather than a pass over the loaded assemblies, because the driver builds a class map lazily, on
+  first serialization. That is after the whole builder chain has run, so the convention reads a
+  final `HasBaseLanguage` however the chain was ordered, and no type loaded later is missed.
 - **Dapper:** nothing to do on read — there is no column, so they stay `null`. Document that
   INSERT/UPDATE statements must not reference them.
 
