@@ -106,9 +106,19 @@ namespace Microsoft.Extensions.DependencyInjection
         /// POST   {prefix}/{code}/set-default      promote to default
         /// DELETE {prefix}/{code}/translations     purge every translation in that language
         /// </code>
-        /// Returns the route group, so the endpoints can be secured in one call —
-        /// <c>app.MapLanguageEndpoints().RequireAuthorization("admin")</c>. They change what every
-        /// client sees; do not leave them anonymous in production.
+        /// <para>
+        /// <b>They are anonymous</b>, as every <c>Map…</c> in ASP.NET Core is: a library cannot know
+        /// which authorization policies an application has declared, so requiring one here would
+        /// either invent a policy name every consumer has to define or fail at startup for any
+        /// application that has not configured authentication. Protecting them is the
+        /// application's decision. The route group is returned so that it takes one line:
+        /// <code>
+        /// app.MapLanguageEndpoints().RequireAuthorization("admin");
+        /// </code>
+        /// They change what every client of the application sees — and
+        /// <c>DELETE {prefix}/{code}/translations</c> removes content — so secure them before
+        /// production.
+        /// </para>
         /// </summary>
         public static RouteGroupBuilder MapLanguageEndpoints(this IEndpointRouteBuilder endpoints, string prefix = "/api/languages")
         {
