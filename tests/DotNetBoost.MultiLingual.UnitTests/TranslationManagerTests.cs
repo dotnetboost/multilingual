@@ -144,6 +144,49 @@ public sealed class TranslationManagerTests
     }
 
     [Fact]
+    public async Task Hydrate_FetchesAProxyAndAPlainInstance_InOneQuery()
+    {
+        await using var engine = await Engine.StartAsync();
+        await SeedLaptopAsync(engine);
+        await using var scope = await engine.ScopeInAsync("en");
+
+        // A lazy-loading proxy is a runtime-generated subclass, so its GetType() is not the entity
+        // class. Both of these are Products as far as the translations table is concerned: one
+        // entity name, one id, one row — and so they must be one query, not one per CLR type.
+        var proxy = RuntimeProxy.Of<Product>();
+        proxy.Id = 1;
+        var plain = new Product { Id = 1 };
+
+        var before = engine.Translations.GetCalls;
+        await scope.Translations.HydrateAsync([proxy, plain]);
+
+        Assert.Equal(1, engine.Translations.GetCalls - before);
+
+        // And the collapsing must not cost the proxy its values.
+        Assert.Equal("Laptop", proxy.Name);
+        Assert.Equal("Laptop", plain.Name);
+    }
+
+    [Fact]
+    public async Task Save_OfAProxy_WritesUnderTheEntityClassName()
+    {
+        await using var engine = await Engine.StartAsync();
+        await using var scope = await engine.ScopeInAsync("fr");
+
+        var proxy = RuntimeProxy.Of<Product>();
+        proxy.Id   = 7;
+        proxy.Name = "Portable";
+        await scope.Translations.SaveAsync(proxy);
+
+        // "Product", never "ProductProxy": a row nobody else could find again would be lost content.
+        Assert.Equal(["Product"], engine.Translations.All.Select(t => t.EntityName).Distinct());
+
+        var plain = new Product { Id = 7 };
+        await scope.Translations.HydrateAsync([plain]);
+        Assert.Equal("Portable", plain.Name);
+    }
+
+    [Fact]
     public async Task GuidKeys_RoundTrip()
     {
         await using var engine = await Engine.StartAsync();

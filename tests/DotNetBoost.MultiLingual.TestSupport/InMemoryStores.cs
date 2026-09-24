@@ -16,6 +16,11 @@ public sealed class InMemoryTranslationStore : ITranslationStore
     /// <summary>How many upsert batches have been written — lets tests assert "nothing was written".</summary>
     public int UpsertCalls { get; private set; }
 
+    /// <summary>
+    /// How many keyed reads were issued — lets tests assert "one query, not one per entity".
+    /// </summary>
+    public int GetCalls { get; private set; }
+
     public IReadOnlyList<Translation> All
     {
         get { lock (_gate) return _rows.Values.Select(Copy).ToList(); }
@@ -30,6 +35,7 @@ public sealed class InMemoryTranslationStore : ITranslationStore
     {
         lock (_gate)
         {
+            GetCalls++;
             return _rows.Values
                 .Where(t => t.EntityName == entityName && entityIds.Contains(t.EntityId) && languageCodes.Contains(t.LanguageCode))
                 .Select(Copy)

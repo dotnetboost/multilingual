@@ -5,6 +5,9 @@ using DotNetBoost.MultiLingual.Core.Interfaces;
 using DotNetBoost.MultiLingual.Core.Models;
 using DotNetBoost.MultiLingual.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
+using System.Reflection;
+using System.Reflection.Emit;
 
 namespace DotNetBoost.MultiLingual.UnitTests;
 
@@ -36,6 +39,28 @@ public class Plain
 {
     public int Id { get; set; }
     public string? Name { get; set; }
+}
+
+/// <summary>
+/// Stands in for an EF Core lazy-loading proxy: a subclass emitted into a DYNAMIC assembly, which
+/// is exactly what <c>MultiLingualMetadata.EntityClass</c> recognises and walks up from. Emitting
+/// one keeps this a Core test — the EF proxies package would drag a provider in to prove something
+/// about the engine.
+/// </summary>
+internal static class RuntimeProxy
+{
+    private static readonly ConcurrentDictionary<Type, Type> Types = new();
+
+    /// <summary>A proxy instance of <typeparamref name="T"/>, indistinguishable from one to the engine.</summary>
+    public static T Of<T>() where T : class => (T)Activator.CreateInstance(TypeOf<T>())!;
+
+    /// <summary>The proxy class itself, built once per entity type.</summary>
+    public static Type TypeOf<T>() where T : class => Types.GetOrAdd(typeof(T), static type =>
+        AssemblyBuilder
+            .DefineDynamicAssembly(new AssemblyName($"{type.Name}.Proxies"), AssemblyBuilderAccess.Run)
+            .DefineDynamicModule("Main")
+            .DefineType($"{type.Name}Proxy", TypeAttributes.Public, type)
+            .CreateType()!);
 }
 
 /// <summary>A clock tests can move.</summary>

@@ -148,12 +148,20 @@ internal sealed partial class TranslationManager(
     /// The translatable entities, one batch per type — one query each — keyed so that a query
     /// returning the same row as several untracked objects hydrates them all. Entities without a
     /// key yet are skipped.
+    /// <para>
+    /// Grouped by the application's own class, not by the runtime one: a lazy-loading proxy and a
+    /// plain instance of the same entity would otherwise land in separate batches and be fetched
+    /// with two queries, for rows stored under one entity name. They read and write the same
+    /// translations either way — <see cref="MultiLingualMetadata.EntityNameFor"/> and
+    /// <see cref="MultiLingualMetadata.For"/> resolve the proxy themselves — so this is the round
+    /// trip, not the answer.
+    /// </para>
     /// </summary>
     private IEnumerable<Batch> Batches(IEnumerable<object> entities)
     {
         var byType = entities
             .Where(e => e is not null && MultiLingualMetadata.IsMultiLingual(e.GetType()))
-            .GroupBy(e => e.GetType());
+            .GroupBy(e => MultiLingualMetadata.EntityClass(e.GetType()));
 
         foreach (var group in byType)
         {
