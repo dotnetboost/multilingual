@@ -42,7 +42,11 @@ public static partial class MultiLingualValidation
         var logger = services.GetService<ILoggerFactory>()?.CreateLogger(LoggerCategory) ?? NullLogger.Instance;
 
         // Its own scope: the store is scoped, and this runs from the root provider at startup.
-        using var scope = services.GetRequiredService<IServiceScopeFactory>().CreateScope();
+        // An ASYNC scope, because disposing a synchronous one throws as soon as anything it created
+        // implements only IAsyncDisposable — which a provider's connection or unit of work may well
+        // do, and the failure would be at startup, in library code, with nothing pointing at the
+        // application's own registration.
+        await using var scope = services.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
 
         IReadOnlyList<Language> languages;
         try

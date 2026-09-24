@@ -54,7 +54,10 @@ internal sealed partial class LanguageCatalog(
             if (current is not null && !IsExpired(current) && version.Unchanged)
                 return Checked(current);
 
-            using var scope = scopeFactory.CreateScope();
+            // Async scope: see MultiLingualValidation for why. The synchronous GetAll() below
+            // cannot do the same, so a scoped service reached from a synchronous save has to
+            // implement IDisposable as well as IAsyncDisposable.
+            await using var scope = scopeFactory.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<ILanguageStore>();
 
             return Store(await store.GetAllAsync(ct), version.Value);
