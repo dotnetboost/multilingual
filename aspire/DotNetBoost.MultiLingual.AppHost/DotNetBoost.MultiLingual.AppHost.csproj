@@ -23,8 +23,9 @@
          its alternative needs. -->
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
 
-    <!-- Alternative database — uncomment alongside the matching block in AppHost.cs. -->
+    <!-- Alternative databases — uncomment alongside the matching block in AppHost.cs. -->
     <!-- <PackageReference Include="Aspire.Hosting.SqlServer" /> -->
+    <!-- <PackageReference Include="Aspire.Hosting.MongoDB" /> -->
 
     <!-- Runs the Nuxt dashboard in clients/dashboard as an orchestrated resource. -->
     <PackageReference Include="Aspire.Hosting.JavaScript" />

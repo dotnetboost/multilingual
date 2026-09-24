@@ -48,6 +48,28 @@ var multilingualDb = postgres.AddDatabase("multilingualdb");
 //  let samples/SampleApp/Program.cs point at its own "Data Source=multilingual.db".
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Database — ALTERNATIVE: MongoDB
+//  Package: Aspire.Hosting.MongoDB
+//
+//  The resource name stays "multilingualdb", so the API reads the same
+//  ConnectionStrings:multilingualdb and nothing below this block changes. Mongo Express is the
+//  counterpart to WithPgWeb above: the quickest way to see that a product's document holds the
+//  English name while the translations collection holds Arabic and French, one document per
+//  property per language.
+//
+//  WithReplicaSet: a single node is enough, and it is what makes transactions available — the
+//  provider's store.WithSession(session) needs one, and against a standalone mongod a document and
+//  its translations cannot commit together. See the MongoDB section of README.md.
+// ─────────────────────────────────────────────────────────────────────────────
+// var mongo = builder.AddMongoDB("mongo")
+//     .WithDataVolume("dotnetboost-multilingual-mongodata")
+//     .WithLifetime(ContainerLifetime.Persistent)
+//     .WithReplicaSet()
+//     .WithMongoExpress();
+//
+// var multilingualDb = mongo.AddDatabase("multilingualdb");
+
 // ── API — samples/SampleApp ──────────────────────────────────────────────────
 // Its endpoints come from samples/SampleApp/Properties/launchSettings.json. Without that
 // file the resource has no endpoint at all, and api.GetEndpoint("http") below — the URL

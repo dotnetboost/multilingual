@@ -31,6 +31,7 @@
     <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.5.2" />
     <!-- Referenced only when the matching database block in AppHost.cs is uncommented. -->
     <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.5.2" />
+    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.5.2" />
   </ItemGroup>
 
   <ItemGroup Label="Aspire — consumed by the sample API">

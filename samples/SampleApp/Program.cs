@@ -45,6 +45,18 @@ builder.Services
     .AddJsonLocalization()
     .Build();
 
+// The same engine on MongoDB — one line of this chain changes:
+//
+//   builder.Services
+//       .AddMultiLingual(o => o.BaseLanguage = "en")
+//       .UseMongoDb()                      // over the IMongoDatabase registered below
+//       .AddJsonLocalization()
+//       .Build();
+//
+// Everything else in this file, and every library call in the controllers, stays as it is. See the
+// MongoDB block further down for the rest, and the preamble in Controllers/ProductsController.cs
+// for what a controller does differently without a change tracker.
+
 // Running more than one instance? Each caches the language list, and only the instance that
 // changes a language refreshes at once. Share a change signal through a distributed cache the
 // instances already use, and every instance picks the change up within seconds:
@@ -113,6 +125,54 @@ builder.Services.AddOpenTelemetry()
 // builder.Services.AddDbContext<AppDbContext>((sp, options) => options
 //     .UseSqlite(connectionString)
 //     .UseMultiLingual(sp));
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Database — ALTERNATIVE: MongoDB
+//  SampleApp.csproj: DotNetBoost.MultiLingual.MongoDb (drop the EF Core provider and Npgsql)
+//  AppHost.cs: the MongoDB block, and Aspire.Hosting.MongoDB in its csproj
+//
+//  There is no DbContext, so AppDbContext and its IEntityTypeConfigurations go unused — the
+//  driver's class map takes their place, and UseMongoDb() unmaps the translatable properties from
+//  it. There are no migrations either: the provider creates its indexes when the host starts, and
+//  collections appear on first write.
+//
+//  The connection string the AppHost injects looks like
+//  mongodb://host:port/multilingualdb, so the database name travels with it.
+// ─────────────────────────────────────────────────────────────────────────────
+// builder.Services.AddSingleton<IMongoClient>(_ => new MongoClient(connectionString));
+// builder.Services.AddSingleton(sp =>
+// {
+//     var url = MongoUrl.Create(connectionString);
+//     return sp.GetRequiredService<IMongoClient>().GetDatabase(url.DatabaseName ?? "multilingual");
+// });
+//
+// // Readiness, as AddDbContextCheck does for EF Core: without it /health answers Healthy while
+// // MongoDB is unreachable, and the AppHost's WithHttpHealthCheck("/health") would let the
+// // dashboard start anyway. A ping rather than a package, so this needs nothing extra.
+// builder.Services.AddHealthChecks()
+//     .AddCheck<MongoDbHealthCheck>("mongodb");
+//
+// // The driver emits no ActivitySource of its own. For the SQL-equivalent spans on the Aspire
+// // dashboard — the translations queries included — add MongoDB.Driver.Core.Extensions.
+// // DiagnosticSources and hook its subscriber in the MongoClientSettings' ClusterConfigurator.
+//
+// // ── and, beside Program.cs, the health check itself ──
+// // internal sealed class MongoDbHealthCheck(IMongoDatabase database) : IHealthCheck
+// // {
+// //     public async Task<HealthCheckResult> CheckHealthAsync(
+// //         HealthCheckContext context, CancellationToken cancellationToken = default)
+// //     {
+// //         try
+// //         {
+// //             await database.RunCommandAsync<BsonDocument>("{ ping: 1 }", cancellationToken: cancellationToken);
+// //             return HealthCheckResult.Healthy();
+// //         }
+// //         catch (MongoException ex)
+// //         {
+// //             return HealthCheckResult.Unhealthy(ex.Message, ex);
+// //         }
+// //     }
+// // }
 
 builder.Services.AddControllers(options =>
     {

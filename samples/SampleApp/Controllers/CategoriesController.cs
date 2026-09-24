@@ -24,6 +24,28 @@ public sealed class CategoriesController(
     IStringLocalizer<SharedResource> localizer)
     : ControllerBase
 {
+    // ─────────────────────────────────────────────────────────────────────────
+    //  The same controller on MongoDB
+    //
+    //  As in ProductsController — read that file's preamble first; it explains the three jobs the
+    //  EF Core interceptors do that become the controller's here, and the constructor to swap in.
+    //  For this controller:
+    //
+    //    private IMongoCollection<Category> Categories => database.GetCollection<Category>("categories");
+    //
+    //  and the usings become
+    //
+    //    + using DotNetBoost.MultiLingual.Core;   // BaseLanguageRequiredException, in Create
+    //    + using MongoDB.Driver;
+    //    - using DotNetBoost.MultiLingual.EntityFrameworkCore;
+    //    - using Microsoft.EntityFrameworkCore;
+    //    - using SampleApp.Data;
+    //
+    //  Category's translations come from a CLASS-LEVEL [MultiLingual], and that changes nothing
+    //  below: the engine asks MultiLingualMetadata which properties are translatable, and every
+    //  provider reads the same answer. Class-level or property-level is invisible from here.
+    // ─────────────────────────────────────────────────────────────────────────
+
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<CategoryResponse>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<CategoryResponse>>> GetAll(CancellationToken ct)
@@ -36,6 +58,19 @@ public sealed class CategoriesController(
 
         return Ok(categories.Select(ToResponse).ToList());
     }
+
+    //  MongoDB — GetAll. DisplayOrder is an ordinary field, so unlike the products list this sort
+    //  stays in the database; only the localizing is added.
+    //
+    //  var categories = await Categories
+    //      .Find(Builders<Category>.Filter.Empty)
+    //      .SortBy(c => c.DisplayOrder)
+    //      .ThenBy(c => c.Id)
+    //      .ToListAsync(ct);
+    //
+    //  await multiLingual.LocalizeAsync(categories, ct);
+    //
+    //  return Ok(categories.Select(ToResponse).ToList());
 
     [HttpGet("{id:int}")]
     [ProducesResponseType<CategoryResponse>(StatusCodes.Status200OK)]
@@ -51,6 +86,15 @@ public sealed class CategoriesController(
         return Ok(ToResponse(category));
     }
 
+    //  MongoDB — Get.
+    //
+    //  var category = await Categories.Find(c => c.Id == id).FirstOrDefaultAsync(ct)
+    //      ?? throw new NotFoundException("Categories.NotFound", id);
+    //
+    //  await multiLingual.LocalizeAsync([category], ct);
+    //
+    //  return Ok(ToResponse(category));
+
     [HttpGet("{id:int}/translations")]
     [ProducesResponseType<CategoryTranslationsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -63,6 +107,16 @@ public sealed class CategoriesController(
 
         return Ok(new CategoryTranslationsResponse(category.Id, category.Slug, stored));
     }
+
+    //  MongoDB — GetTranslations. Same manager call; only the load differs, and no localizing is
+    //  needed to read every stored language.
+    //
+    //  var category = await Categories.Find(c => c.Id == id).FirstOrDefaultAsync(ct)
+    //      ?? throw new NotFoundException("Categories.NotFound", id);
+    //
+    //  var stored = await multiLingual.For(category).GetAllAsync(ct);
+    //
+    //  return Ok(new CategoryTranslationsResponse(category.Id, category.Slug, stored));
 
     [HttpPost]
     [ProducesResponseType<CategoryResponse>(StatusCodes.Status201Created)]
@@ -93,6 +147,37 @@ public sealed class CategoriesController(
 
         return CreatedAtAction(nameof(Get), new { id = category.Id }, created);
     }
+
+    //  MongoDB — Create. Same two additions as ProductsController.Create: the base-language rule
+    //  the interceptor would enforce, and SaveAsync after the document exists.
+    //
+    //  if (!multiLingual.Languages.IsBaseLanguage(multiLingual.CurrentLanguage.Code))
+    //  {
+    //      throw new BaseLanguageRequiredException(
+    //          nameof(Category), multiLingual.Languages.BaseLanguage!, multiLingual.CurrentLanguage.Code);
+    //  }
+    //
+    //  var slug = request.Slug.Trim();
+    //  if (await Categories.Find(c => c.Slug == slug).AnyAsync(ct))
+    //  {
+    //      throw new ConflictException("Categories.SlugExists", slug);
+    //  }
+    //
+    //  var category = new Category
+    //  {
+    //      Id = await NextIdAsync("categories", ct),   // see ProductsController
+    //      Slug = slug,
+    //      DisplayOrder = request.DisplayOrder,
+    //      Name = request.Name,
+    //      Description = request.Description
+    //  };
+    //
+    //  await Categories.InsertOneAsync(category, cancellationToken: ct);
+    //  await multiLingual.For(category).SaveAsync(ct);
+    //
+    //  var created = ToResponse(category) with { Message = localizer["Categories.Created", category.Slug] };
+    //
+    //  return CreatedAtAction(nameof(Get), new { id = category.Id }, created);
 
     [HttpPut("{id:int}")]
     [ProducesResponseType<CategoryResponse>(StatusCodes.Status200OK)]
@@ -145,6 +230,57 @@ public sealed class CategoriesController(
         return Ok(ToResponse(saved!) with { Message = localizer["Categories.Updated", saved!.Slug] });
     }
 
+    //  MongoDB — Update. See ProductsController.Update for why the translatable fields are held out
+    //  of the $set in any language but the base one, and why the untouched ones are declared.
+    //
+    //  var category = await Categories.Find(c => c.Id == id).FirstOrDefaultAsync(ct)
+    //      ?? throw new NotFoundException("Categories.NotFound", id);
+    //
+    //  await multiLingual.LocalizeAsync([category], ct);
+    //
+    //  var updates = new List<UpdateDefinition<Category>>();
+    //
+    //  if (request.Slug is not null)
+    //  {
+    //      var slug = request.Slug.Trim();
+    //      if (await Categories.Find(c => c.Slug == slug && c.Id != id).AnyAsync(ct))
+    //      {
+    //          throw new ConflictException("Categories.SlugExists", slug);
+    //      }
+    //
+    //      updates.Add(Builders<Category>.Update.Set(c => c.Slug, slug));
+    //  }
+    //
+    //  if (request.DisplayOrder is not null)
+    //  {
+    //      updates.Add(Builders<Category>.Update.Set(c => c.DisplayOrder, request.DisplayOrder.Value));
+    //  }
+    //
+    //  if (request.Name is not null)        category.Name = request.Name;
+    //  if (request.Description is not null) category.Description = request.Description;
+    //
+    //  if (request.Name is null)        multiLingual.For(category).MarkAsBaseLanguageValues(c => c.Name);
+    //  if (request.Description is null) multiLingual.For(category).MarkAsBaseLanguageValues(c => c.Description);
+    //
+    //  if (multiLingual.Languages.IsBaseLanguage(multiLingual.CurrentLanguage.Code))
+    //  {
+    //      if (request.Name is not null)        updates.Add(Builders<Category>.Update.Set(c => c.Name, request.Name));
+    //      if (request.Description is not null) updates.Add(Builders<Category>.Update.Set(c => c.Description, request.Description));
+    //  }
+    //
+    //  if (updates.Count > 0)
+    //  {
+    //      await Categories.UpdateOneAsync(
+    //          c => c.Id == id, Builders<Category>.Update.Combine(updates), cancellationToken: ct);
+    //  }
+    //
+    //  await multiLingual.For(category).SaveAsync(ct);
+    //
+    //  var saved = await Categories.Find(c => c.Id == id).FirstOrDefaultAsync(ct);
+    //  await multiLingual.LocalizeAsync([saved!], ct);
+    //
+    //  return Ok(ToResponse(saved!) with { Message = localizer["Categories.Updated", saved!.Slug] });
+
     [HttpDelete("{id:int}")]
     [ProducesResponseType<DeleteResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -158,6 +294,24 @@ public sealed class CategoriesController(
 
         return Ok(new DeleteResponse(category.Id, localizer["Categories.Deleted", category.Slug]));
     }
+
+    //  MongoDB — Delete. Deleting a category leaves its products' CategoryId dangling: EF Core does
+    //  that with OnDelete(SetNull) in AppDbContext, and MongoDB has no such declaration, so do it
+    //  here. The category's own translations go with For(category).DeleteAsync() — the products'
+    //  translations are untouched, since the products themselves survive.
+    //
+    //  var category = await Categories.Find(c => c.Id == id).FirstOrDefaultAsync(ct)
+    //      ?? throw new NotFoundException("Categories.NotFound", id);
+    //
+    //  await database.GetCollection<Product>("products").UpdateManyAsync(
+    //      p => p.CategoryId == id,
+    //      Builders<Product>.Update.Set(p => p.CategoryId, null),
+    //      cancellationToken: ct);
+    //
+    //  await Categories.DeleteOneAsync(c => c.Id == id, ct);
+    //  await multiLingual.For(category).DeleteAsync(ct);
+    //
+    //  return Ok(new DeleteResponse(category.Id, localizer["Categories.Deleted", category.Slug]));
 
     private CategoryResponse ToResponse(Category category) =>
         new(category.Id,
