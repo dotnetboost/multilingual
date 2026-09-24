@@ -116,7 +116,13 @@ internal static class QueryTranslation
         }
 
         if (markers.Languages.Count == 1)
+        {
+            // Synchronous, and it has to be: EF calls this while COMPILING the query, through an
+            // API that cannot be awaited. It is also once per query shape rather than once per
+            // execution, so the blocking catalog read cannot recur under load the way a
+            // per-execution one would — see LanguageTokenInterceptor.ApplyAsync.
             language = services.GetRequiredService<TranslationManager>().ReadLanguages(markers.Languages.Single()).Language;
+        }
 
         var chain = new Chain(context, options, language);
         query = new ReadTranslator(chain).Visit(query);

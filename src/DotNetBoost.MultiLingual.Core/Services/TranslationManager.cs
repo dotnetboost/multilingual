@@ -271,6 +271,13 @@ internal sealed partial class TranslationManager(
     /// fallback is disabled, is the same language, or the requested language is the base one,
     /// whose column already ends the chain.
     /// </summary>
+    /// <remarks>
+    /// Reaches the language catalog only when it has to: with a language already resolved for the
+    /// scope — every request that went through <c>UseMultiLingual()</c> — the answer comes from the
+    /// scope itself. An explicit language, or no resolved one at all, needs the list. Prefer
+    /// <see cref="ReadLanguagesAsync"/> wherever the caller can await: the synchronous catalog
+    /// blocks on the store and on the change signal when its snapshot has expired.
+    /// </remarks>
     /// <exception cref="UnknownLanguageException"><paramref name="explicitLanguage"/> does not exist.</exception>
     internal (string Language, string? Fallback) ReadLanguages(string? explicitLanguage = null)
     {
@@ -279,6 +286,27 @@ internal sealed partial class TranslationManager(
             : languageContext.IsResolved
                 ? Plan(languageContext.Current.Code, languageContext.DefaultLanguage.Code)
                 : Plan(DefaultOf(catalog.GetAll()));
+
+        return (plan.Language, plan.Fallback);
+    }
+
+    /// <summary>
+    /// <see cref="ReadLanguages"/> for a caller that can await. Identical answers; it differs only
+    /// in how it reaches the language catalog when the snapshot has to be refreshed — awaiting the
+    /// store and the change signal rather than blocking a thread on them.
+    /// </summary>
+    /// <exception cref="UnknownLanguageException"><paramref name="explicitLanguage"/> does not exist.</exception>
+    internal async Task<(string Language, string? Fallback)> ReadLanguagesAsync(
+        string? explicitLanguage = null, CancellationToken ct = default)
+    {
+        HydrationPlan plan;
+
+        if (explicitLanguage is not null)
+            plan = Plan(await catalog.GetAllAsync(ct), explicitLanguage);
+        else if (languageContext.IsResolved)
+            plan = Plan(languageContext.Current.Code, languageContext.DefaultLanguage.Code);
+        else
+            plan = Plan(DefaultOf(await catalog.GetAllAsync(ct)));
 
         return (plan.Language, plan.Fallback);
     }

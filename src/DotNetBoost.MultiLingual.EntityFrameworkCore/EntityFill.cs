@@ -103,6 +103,10 @@ internal static class EntityFill
             return new Scope(services.GetRequiredService<TranslationManager>(), services.GetRequiredService<IEntityKeyAccessor>());
         });
 
+        // Synchronous, and it has to be: this runs inside the projection EF compiled into the
+        // query, which is a plain Func invoked per row. It is cheap anyway — the command that
+        // produced this row has already been through LanguageTokenInterceptor, which asked for the
+        // same languages and left the catalog's snapshot fresh.
         var (served, fallback) = scope.Engine.ReadLanguages(language);
         Apply(entity, typeof(T), values, context, scope, served, fallback);
         return entity;
