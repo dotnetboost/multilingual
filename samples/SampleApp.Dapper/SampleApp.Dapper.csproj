@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    <RootNamespace>SampleApp.Dapper</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <!-- The provider. This is the only line that differs from samples/SampleApp, which references
+         DotNetBoost.MultiLingual.EntityFrameworkCore here instead. -->
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Dapper/DotNetBoost.MultiLingual.Dapper.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.API/DotNetBoost.MultiLingual.API.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Localization/DotNetBoost.MultiLingual.Localization.csproj" />
+    <ProjectReference Include="../../aspire/DotNetBoost.MultiLingual.ServiceDefaults/DotNetBoost.MultiLingual.ServiceDefaults.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
+  <!--
+    Data access: Dapper over the raw ADO.NET driver. PostgreSQL here because the AppHost already
+    runs one for the EF Core sample and this sample takes a second database on it; the provider
+    detects the dialect from the connection type, so switching to Microsoft.Data.SqlClient or
+    Microsoft.Data.Sqlite means changing the driver package and the factory in Program.cs, nothing
+    more. The DDL in Data/DbInitializer.cs is the only PostgreSQL-specific code in the sample.
+  -->
+  <ItemGroup Label="Database — ACTIVE: PostgreSQL (raw driver + Dapper)">
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <!--
+    The request and response types, and the error handling, are the EF Core sample's OWN FILES,
+    compiled into this project rather than copied — the same arrangement samples/SampleApp.MongoDb
+    uses, and for the same reason: nothing about the wire contract depends on the provider, so the
+    dashboard in clients/dashboard can be pointed at any of the three APIs without a change, and a
+    contract that lived in three places would drift. What differs between the samples is the data
+    access, which is local.
+  -->
+  <ItemGroup>
+    <Compile Include="../SampleApp/Dtos/*.cs" LinkBase="Dtos" />
+    <Compile Include="../SampleApp/Infrastructure/AppException.cs" LinkBase="Infrastructure" />
+  </ItemGroup>
+</Project>

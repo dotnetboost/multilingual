@@ -37,7 +37,7 @@ adoptable on a database that already has `Name` and `Description` full of data.
 | `DotNetBoost.MultiLingual.API` | ASP.NET Core: `Accept-Language` middleware, language management endpoints, ProblemDetails mapping, and (net10.0) an OpenAPI transformer. |
 | `DotNetBoost.MultiLingual.Localization` | `IStringLocalizer` for the application's own messages, read from JSON files in the same language as the content. See [localized messages](#localized-messages). |
 | `DotNetBoost.MultiLingual.MongoDb` | MongoDB provider. Translations in one collection keyed by the natural key; translatable properties unmapped from the entity's own documents. No change tracker to hook, so reads and writes go through `IMultiLingualManager` — see [providers without change tracking](#providers-without-change-tracking). |
-| `DotNetBoost.MultiLingual.Dapper` | *Planned.* |
+| `DotNetBoost.MultiLingual.Dapper` | Dapper provider. Translations in one table keyed by the natural key, in the same schema the EF Core provider maps — and it can create that schema for you with `migrateSchema: true`. SQL Server, PostgreSQL, SQLite. No change tracker to hook, so reads and writes go through `IMultiLingualManager` — see [providers without change tracking](#providers-without-change-tracking). |
 
 All packages target `net8.0` and `net10.0`.
 
@@ -565,7 +565,7 @@ translatable. `samples/SampleApp/Resources/ar.json` translates them all.
 
 ## Providers without change tracking
 
-MongoDB — and Dapper, when it lands — has no interceptors to hook, so its users call the same
+MongoDB and Dapper have no interceptors to hook, so their users call the same
 `IMultiLingualManager` explicitly, reading, saving and deleting translations alongside their own
 queries:
 
@@ -625,6 +625,39 @@ Core sample's own Products and Categories API over this provider, serving the sa
 same bodies from the same DTO files. The Aspire AppHost runs both at once, and one line there points
 the dashboard at either — which is the clearest evidence that the provider is invisible from
 outside.
+
+With Dapper the same three calls apply, and the unit of work is your own `IDbTransaction`:
+
+```csharp
+builder.Services
+    .AddMultiLingual(o => o.BaseLanguage = "en")
+    .UseDapper(sp => new SqlConnection(connectionString), migrateSchema: true)
+    .Build();
+```
+
+```csharp
+using var transaction = connection.BeginTransaction();
+await connection.ExecuteAsync(insertSql, product, transaction);
+
+var store = new DapperTranslationStore(connection).WithTransaction(transaction);
+await writer.WithStore(store).WriteAsync(writes, ct);
+
+transaction.Commit();
+```
+
+An application that registers its transaction as a scoped `IDbTransaction` gets that enlistment
+without writing it out. The tables are the ones the EF Core provider maps, so a database can move
+between the two providers; `migrateSchema: true` creates them at startup when nothing else owns
+your schema, and `DapperSchema.Script(dialect)` hands you the same DDL to check in instead. As with
+MongoDB, filtering and sorting on translated values in the database stays an EF Core feature.
+
+[docs/dapper.md](docs/dapper.md) covers the differences in full, and
+[samples/SampleApp.Dapper](samples/SampleApp.Dapper) is a runnable version of all of them: the EF
+Core sample's own Products and Categories API over this provider, serving the same routes and the
+same bodies from the same DTO files. It takes a second database on the PostgreSQL container the EF
+Core sample already uses, so the two schemas can be compared side by side in pgweb — they are
+identical. It is also the sample that shows the unit of work: one transaction per request, so a row
+and its translations commit or roll back together.
 
 In base-language mode such a provider has one extra duty, because it has no change tracker to ask
 which properties a caller touched. Before saving in a language other than the base one, declare

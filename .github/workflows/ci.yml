@@ -303,11 +303,11 @@ jobs:
 
       - name: Pack all library projects
         run: |
-          # Add DotNetBoost.MultiLingual.Dapper here when that provider lands.
           for project in \
             DotNetBoost.MultiLingual.Core \
             DotNetBoost.MultiLingual.EntityFrameworkCore \
             DotNetBoost.MultiLingual.MongoDb \
+            DotNetBoost.MultiLingual.Dapper \
             DotNetBoost.MultiLingual.API \
             DotNetBoost.MultiLingual.Localization; do
             dotnet pack "src/$project/$project.csproj" \

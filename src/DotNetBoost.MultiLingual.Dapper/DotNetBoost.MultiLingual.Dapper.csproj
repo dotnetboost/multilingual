@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>DotNetBoost.MultiLingual.Dapper</PackageId>
+    <Description>
+      Dapper provider for DotNetBoost.MultiLingual. Translations live in one table, keyed by
+      (entity name, entity id, property name, language code), with the same schema the EF Core
+      provider maps — so a database can move between the two. Supports SQL Server, PostgreSQL and
+      SQLite, and can create its two tables at startup with UseDapper(..., migrateSchema: true).
+      There is no change tracker to hook, so application code localizes after a query and saves
+      translations alongside its own writes — see docs/dapper.md.
+    </Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The statement cache and the migration hosted service are internals; the stores are
+         exercised through the shared contract suites. -->
+    <InternalsVisibleTo Include="DotNetBoost.MultiLingual.ProviderTests" />
+    <InternalsVisibleTo Include="DotNetBoost.MultiLingual.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <PackageReference Include="Dapper" />
+    <!-- IHostedService only, for the opt-in schema creation. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+</Project>

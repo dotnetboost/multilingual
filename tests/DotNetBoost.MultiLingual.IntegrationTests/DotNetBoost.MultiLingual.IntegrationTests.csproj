@@ -11,6 +11,7 @@
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.EntityFrameworkCore/DotNetBoost.MultiLingual.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.MongoDb/DotNetBoost.MultiLingual.MongoDb.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Dapper/DotNetBoost.MultiLingual.Dapper.csproj" />
     <!-- Reuses the store contract suites so the same tests run against real engines. -->
     <ProjectReference Include="../DotNetBoost.MultiLingual.ProviderTests/DotNetBoost.MultiLingual.ProviderTests.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -21,6 +22,7 @@
     <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Testcontainers.MongoDb" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>

@@ -1,7 +1,8 @@
 # Running everything with .NET Aspire
 
 [`aspire/DotNetBoost.MultiLingual.AppHost`](../aspire/DotNetBoost.MultiLingual.AppHost) orchestrates
-the whole demo stack — the sample API, the dashboard and PostgreSQL — from one command:
+the whole demo stack — all three sample APIs, the dashboard, PostgreSQL and MongoDB — from one
+command:
 
 ```bash
 dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost
@@ -22,14 +23,24 @@ What comes up:
 
 | Resource | What it is |
 |---|---|
-| `postgres` / `multilingualdb` | PostgreSQL 18 container, named volume, persistent across runs |
-| `pgweb` | Browser SQL client: `Products.Name` holds English, `Translations` every other language |
-| `api` | `samples/SampleApp` on `http://localhost:5160` — the endpoints and the Scalar reference at `/scalar` |
+| `postgres` | PostgreSQL 18 container, named volume, persistent across runs |
+| `multilingualdb` | The EF Core sample's database |
+| `multilingualdapperdb` | The Dapper sample's database, on the same server — so the two schemas can be compared in pgweb. They are identical, which is the claim that provider makes |
+| `pgweb` | Browser SQL client, reaching both: `Products.Name` holds English, `Translations` every other language |
+| `mongo` / `multilingualmongodb` | MongoDB container and database, named volume |
+| `mongo-express` | The pgweb counterpart for MongoDB |
+| `api` | `samples/SampleApp` on `http://localhost:5160` — EF Core provider |
+| `mongo-api` | `samples/SampleApp.MongoDb` on `http://localhost:5170` — MongoDB provider |
+| `dapper-api` | `samples/SampleApp.Dapper` on `http://localhost:5180` — Dapper provider |
 | `dashboard-installer` | `npm install` for the Nuxt client, run once before the dev server |
-| `dashboard` | `clients/dashboard` — `npm run dev`, wired to the API automatically |
+| `dashboard` | `clients/dashboard` — `npm run dev`, wired to one of the APIs automatically |
 
-The API waits for the database, and the dashboard waits for the API's `/health`, which includes a
-`DbContext` check — so the dashboard starts only once Postgres actually answers. The AppHost's own
+Each API serves the same routes and the same request and response bodies — the DTO files are shared
+— so the dashboard can be pointed at any of them by changing one line in `AppHost.cs`. All three
+expose the Scalar reference at `/scalar`.
+
+Each API waits for its database, and the dashboard waits for the API's `/health`, which includes a
+store check — so the dashboard starts only once the database actually answers. The AppHost's own
 ports (`15160`/`17160` and up) differ from DotNetBoost.Settings', so both stacks can run side by side.
 
 ## What the AppHost injects
@@ -37,6 +48,8 @@ ports (`15160`/`17160` and up) differ from DotNetBoost.Settings', so both stacks
 | Into | Variable | Value |
 |---|---|---|
 | `api` | `ConnectionStrings__multilingualdb` | The Postgres container's database |
+| `dapper-api` | `ConnectionStrings__multilingualdapperdb` | Its own database on the same Postgres container |
+| `mongo-api` | `ConnectionStrings__multilingualmongodb` | The MongoDB container's database |
 | `dashboard` | `NUXT_MULTILINGUAL_API_URL` | The API's http endpoint, for the `/api/**` proxy |
 | `dashboard` | `NUXT_PUBLIC_API_REFERENCE_URL` | `{api}/scalar` |
 | `dashboard` | `NUXT_PUBLIC_BASE_LANGUAGE` | `en`, matching `BaseLanguage` in `Program.cs` |

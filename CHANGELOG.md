@@ -7,18 +7,19 @@ All notable changes to this project are documented here. The format follows
 ## [1.0.0-preview.1] - Unreleased
 
 First public release: translatable content for any entity, driven by a `[MultiLingual]` attribute,
-with Entity Framework Core and MongoDB providers and ASP.NET Core integration. The API may still
-change before 1.0.0.
+with Entity Framework Core, MongoDB and Dapper providers and ASP.NET Core integration. The API may
+still change before 1.0.0.
 
 | Package | Contents |
 |---|---|
 | `DotNetBoost.MultiLingual.Core` | Attributes, the engine and its contracts. No EF Core or ASP.NET Core dependency. |
 | `DotNetBoost.MultiLingual.EntityFrameworkCore` | The EF Core provider: mapping, interceptors, translated queries. |
 | `DotNetBoost.MultiLingual.MongoDb` | The MongoDB provider: two collections, class-map unmapping, session-scoped writes. |
+| `DotNetBoost.MultiLingual.Dapper` | The Dapper provider: the EF Core provider's own schema, optional schema creation, transaction-scoped writes. |
 | `DotNetBoost.MultiLingual.API` | `Accept-Language` middleware, language endpoints, problem details, OpenAPI. |
 | `DotNetBoost.MultiLingual.Localization` | `IStringLocalizer` over JSON files, in the same language as the content. |
 
-All five target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL, SQLite and
+All six target `net8.0` and `net10.0`, and are tested on SQL Server, PostgreSQL, SQLite and
 MongoDB 8.0. On `net8.0` they need only the 8.0 line of `Microsoft.Extensions` (and EF Core 8), so an
 application keeps the versions its runtime ships.
 
@@ -133,6 +134,36 @@ application keeps the versions its runtime ships.
   `IMultiLingualManager` — and filtering or sorting on translated values in the database stays an
   EF Core feature.
 
+### Dapper
+- `services.AddMultiLingual().UseDapper(sp => new SqlConnection(cs), migrateSchema: true).Build()`.
+  The connection factory's runtime type selects the dialect — SQL Server, PostgreSQL or SQLite —
+  and `DapperOptions` configures table and schema names, or an explicit dialect for a wrapped
+  connection.
+- The tables are the ones the EF Core provider maps — same names, lengths, composite primary key,
+  restricting foreign key and index names — so one database serves either provider. Column lengths
+  come from the same Core constants both providers use, so the two cannot drift.
+- `migrateSchema: true` adds a hosted service that creates those tables at startup if they are
+  absent; `DapperSchema.Script(dialect)` returns the same DDL for a migrations folder, and
+  `DapperSchema.EnsureCreatedAsync(connection)` runs it from a deployment step. Every statement is
+  conditional, so it is safe on every boot — but it only ever CREATEs, and will not migrate a table
+  whose shape has changed. Off by default.
+- Upserts are `INSERT ... ON CONFLICT` on PostgreSQL and SQLite, `MERGE ... WITH (HOLDLOCK)` on SQL
+  Server; a batch is folded to one outcome per natural key first, so the later row wins and a
+  `null` value removes the row rather than storing a null.
+- `store.WithTransaction(transaction)`, with `ITranslationWriter.WithStore`, puts an entity and its
+  translations in one transaction; an application that registers a scoped `IDbTransaction` gets that
+  automatically. Without one, a multi-row write takes a transaction of its own for the duration.
+- Identifiers are quoted in their declared casing on every engine, so PostgreSQL does not fold them
+  to lower case and lose sight of the EF Core provider's tables.
+- Keys come from Core's convention (`[Key]`, `Id`, `{Type}Id`) — Dapper maps plain objects, so there
+  is nothing better to read.
+- No change tracker to hook, so application code localizes after its own queries and saves through
+  `IMultiLingualManager` — and filtering or sorting on translated values in the database stays an
+  EF Core feature.
+- `samples/SampleApp.Dapper` is the EF Core sample's API over this provider, endpoint for endpoint,
+  on its own database beside it. It is also where the unit of work is shown: one transaction per
+  request, so a row and its translations commit or roll back together.
+
 ### Extending
 - `ITranslationStore` and `ILanguageStore` for other backends, with contract test suites a provider
   must pass; `ITranslationWriter` for the steps of a save; `IEntityKeyAccessor` for key discovery;
@@ -145,9 +176,11 @@ application keeps the versions its runtime ships.
   Nitro proxies the API, so no CORS setup is needed.
 
 ### Aspire
-- `aspire/DotNetBoost.MultiLingual.AppHost` starts PostgreSQL (with pgweb), the sample API and the
-  dashboard from one `dotnet run` (or `aspire run`), injecting the connection string and every
-  dashboard URL. SQL Server and SQLite are written out in full next to it, commented.
+- `aspire/DotNetBoost.MultiLingual.AppHost` starts PostgreSQL (with pgweb), MongoDB (with Mongo
+  Express), all three sample APIs and the dashboard from one `dotnet run` (or `aspire run`),
+  injecting each connection string and every dashboard URL. The Dapper sample takes a second
+  database on the same PostgreSQL server, so its schema and the EF Core one can be compared in
+  pgweb. SQL Server and SQLite are written out in full next to it, commented.
 - `aspire/DotNetBoost.MultiLingual.ServiceDefaults`: OpenTelemetry over OTLP (Npgsql's traces and
   metrics included), `/health` with a `DbContext` check and `/alive`, service discovery and
   resilient `HttpClient` defaults.

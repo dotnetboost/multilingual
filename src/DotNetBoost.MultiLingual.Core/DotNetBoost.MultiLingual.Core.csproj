@@ -13,10 +13,10 @@
   <ItemGroup>
     <!-- The engine services (language context and catalog, translation and language managers) are
          internal: applications use IMultiLingualManager. The sibling packages build on the engine
-         directly, as the storage providers do — a first-party Dapper provider would be added here
-         too. -->
+         directly, as the storage providers do. -->
     <InternalsVisibleTo Include="DotNetBoost.MultiLingual.EntityFrameworkCore" />
     <InternalsVisibleTo Include="DotNetBoost.MultiLingual.MongoDb" />
+    <InternalsVisibleTo Include="DotNetBoost.MultiLingual.Dapper" />
     <InternalsVisibleTo Include="DotNetBoost.MultiLingual.API" />
     <InternalsVisibleTo Include="DotNetBoost.MultiLingual.Localization" />
     <!-- The tests cover the engine directly rather than only through the public surface. -->

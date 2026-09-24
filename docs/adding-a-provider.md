@@ -1,8 +1,8 @@
 # Adding a provider
 
-This is what a backend needs. `DotNetBoost.MultiLingual.MongoDb` is the worked example of every
-step below — a provider with no change tracker, unlike the EF Core one — so read it alongside this.
-Dapper is still planned.
+This is what a backend needs. `DotNetBoost.MultiLingual.MongoDb` and
+`DotNetBoost.MultiLingual.Dapper` are the worked examples of every step below — providers with no
+change tracker, unlike the EF Core one — so read one of them alongside this.
 
 ## 1. Implement the two stores
 
@@ -17,7 +17,7 @@ engine behind `IMultiLingualManager`. What a store does have to get right:
 | Never keep references to the caller's `Translation` / `Language` instances. | Callers reuse them. |
 | Override the synchronous members (`UpsertMany`, `DeleteEntities`, `ILanguageStore.GetAll`) when the backend has a synchronous API. | Their defaults block on the async members, which can deadlock a synchronous save on a UI thread. |
 | Take entity names from `MultiLingualMetadata.EntityNameFor(type)`, never `type.Name`, and size the column for `MultiLingualMetadata.MaxEntityNameLength`. | Types can fix their stored name with `[MultiLingualEntity]`. |
-| Writes join whatever unit of work the application is in (Dapper: the ambient `IDbTransaction`; MongoDB: the `IClientSessionHandle`). | An entity and its translations commit or roll back together. |
+| Writes join whatever unit of work the application is in (Dapper: the ambient `IDbTransaction`; MongoDB: the `IClientSessionHandle`), exposed as a `With…` method that returns a store bound to it. | An entity and its translations commit or roll back together. |
 
 Two of those rules — writes joining the caller's unit of work, and the atomic default-language
 flip — need real transactions. On MongoDB that means a session, and a session means a replica set
@@ -25,11 +25,16 @@ or a sharded cluster: against a standalone `mongod` both degrade into separate w
 leave a half-applied change behind. It is a deployment prerequisite, not an implementation detail,
 so state it in the provider's README as well as here.
 
-Suggested shapes:
+Shapes as shipped:
 
 - **Dapper** — `Translations` / `Languages` tables identical to the EF provider's (see
-  `TranslationConfiguration` / `LanguageConfiguration`), so a database can move between providers.
-  `MERGE` / `INSERT ... ON CONFLICT` for upserts.
+  `TranslationConfiguration` / `LanguageConfiguration`), so a database can move between providers;
+  `DapperSchema` generates that DDL for all three engines and `UseDapper(..., migrateSchema: true)`
+  runs it at startup. `MERGE ... WITH (HOLDLOCK)` on SQL Server, `INSERT ... ON CONFLICT` elsewhere.
+  Two traps a relational provider hits that MongoDB does not: identifiers must be **quoted** so
+  PostgreSQL does not fold them to lower case and lose sight of the EF provider's tables, and a list
+  filter has two spellings — Dapper expands a list into `IN (@p1, @p2)` on most providers but binds
+  ONE array parameter on Npgsql, where only `= ANY(@p)` matches what was bound.
 - **MongoDB** — as shipped: a `translations` collection whose documents carry the four key fields
   and no `_id` of their own, with a unique compound index on them created by a hosted service
   (`MongoIndexInitializer`), and a `languages` collection where the code IS `_id`. The natural key
@@ -39,17 +44,40 @@ Suggested shapes:
 ## 2. Register them
 
 Add a `UseDapper(...)` / `UseMongoDb(...)` builder extension in the
-`Microsoft.Extensions.DependencyInjection` namespace, mirroring `UseEntityFrameworkCore`:
+`Microsoft.Extensions.DependencyInjection` namespace, mirroring `UseEntityFrameworkCore`. As
+shipped, minus its options and schema handling:
 
 ```csharp
-public static MultiLingualBuilder UseDapper(this MultiLingualBuilder builder, Func<IServiceProvider, IDbConnection> connection)
+public static MultiLingualBuilder UseDapper(
+    this MultiLingualBuilder builder,
+    Func<IServiceProvider, IDbConnection> connectionFactory,
+    bool migrateSchema = false)
 {
     MultiLingualBuilderGuard.EnsureProviderNotConfigured(builder, "Dapper");
-    builder.Services.AddScoped<ITranslationStore>(sp => new DapperTranslationStore(connection(sp)));
-    builder.Services.AddScoped<ILanguageStore>(sp => new DapperLanguageStore(connection(sp)));
+
+    // Scoped and container-owned, so the connection is disposed with the scope and anything else
+    // in it that asks for IDbConnection gets the very one the stores use.
+    builder.Services.AddScoped(connectionFactory);
+
+    // Scoped too, so a transaction the application puts in the scope is the one the stores enlist in.
+    builder.Services.AddScoped<ITranslationStore>(sp => new DapperTranslationStore(
+        sp.GetRequiredService<IDbConnection>(), transaction: sp.GetService<IDbTransaction>()));
+    builder.Services.AddScoped<ILanguageStore>(sp => new DapperLanguageStore(
+        sp.GetRequiredService<IDbConnection>(), transaction: sp.GetService<IDbTransaction>()));
+
+    if (migrateSchema)
+        builder.Services.AddSingleton<IHostedService>(sp => new DapperMigrationHostedService(sp, ...));
+
     return builder;
 }
 ```
+
+A provider whose users have no migrations to hang the schema off can create it itself, behind an
+opt-in flag as `migrateSchema` is. Generate the DDL from the same Core constants the EF Core
+configuration uses (`MultiLingualMetadata.MaxEntityNameLength`, `EntityKey.MaxLength`,
+`LanguageCodes.MaxLength`) so the two cannot describe the same column differently, keep every
+statement conditional so it is safe on every boot, and be explicit that it only ever CREATEs —
+it can bring a database into existence, not migrate one whose shape has changed.
 
 If the backend knows entity keys better than the naming convention (`[Key]`, `Id`,
 `{Type}Id`), replace `IEntityKeyAccessor` too, as the EF Core provider does. **On MongoDB you
@@ -89,8 +117,8 @@ synchronous save.
   rather than a pass over the loaded assemblies, because the driver builds a class map lazily, on
   first serialization. That is after the whole builder chain has run, so the convention reads a
   final `HasBaseLanguage` however the chain was ordered, and no type loaded later is missed.
-- **Dapper:** nothing to do on read — there is no column, so they stay `null`. Document that
-  INSERT/UPDATE statements must not reference them.
+- **Dapper:** nothing to do on read — there is no column, so they stay `null`. The provider
+  documents that INSERT/UPDATE statements must not reference them; see `docs/dapper.md`.
 
 ## 5. Pass the contract suites
 
@@ -109,7 +137,10 @@ public sealed class DapperLanguageStoreTests : LanguageStoreContractTests
 }
 ```
 
-A provider is done when both are green. Then add the project to the pack step in
+A provider is done when both are green. Run them against every engine the provider claims: the
+Dapper stores pass the suites on SQLite (in `ProviderTests`, where no container is needed) and on
+PostgreSQL and SQL Server (in `IntegrationTests`) — and the PostgreSQL list-parameter trap above is
+exactly the kind of bug only a real engine finds. Then add the project to the pack step in
 `.github/workflows/ci.yml` and uncomment its package versions in `Directory.Packages.props`.
 
 ## What users of an untracked provider write

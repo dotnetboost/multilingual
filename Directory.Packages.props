@@ -57,13 +57,9 @@
     <PackageVersion Include="MongoDB.Driver" Version="3.9.0" />
   </ItemGroup>
 
-  <!--
-    Future providers. Uncomment alongside the matching src/ project.
-
-    <ItemGroup Label="Dapper">
-      <PackageVersion Include="Dapper" Version="2.1.79" />
-    </ItemGroup>
-  -->
+  <ItemGroup Label="Dapper">
+    <PackageVersion Include="Dapper" Version="2.1.79" />
+  </ItemGroup>
 
   <!-- Transitive pins: patched versions for packages flagged by NuGet audit. -->
   <ItemGroup Label="Transitive security pins">
@@ -166,5 +162,9 @@
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <!-- The raw ADO.NET driver, for samples/SampleApp.Dapper. Same version the EF provider above
+         resolves, so the two samples share one restored Npgsql. net10.0 only: the samples target
+         it alone, and nothing on net8.0 references the driver directly. -->
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 </Project>

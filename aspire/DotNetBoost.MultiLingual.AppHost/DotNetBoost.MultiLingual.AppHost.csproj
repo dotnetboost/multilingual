@@ -34,10 +34,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The API hosts. IsAspireProjectResource makes the Aspire SDK emit Projects.SampleApp
-         and Projects.SampleApp_MongoDb. -->
+    <!-- The API hosts. IsAspireProjectResource makes the Aspire SDK emit Projects.SampleApp,
+         Projects.SampleApp_MongoDb and Projects.SampleApp_Dapper. -->
     <ProjectReference Include="../../samples/SampleApp/SampleApp.csproj" />
     <ProjectReference Include="../../samples/SampleApp.MongoDb/SampleApp.MongoDb.csproj" />
+    <ProjectReference Include="../../samples/SampleApp.Dapper/SampleApp.Dapper.csproj" />
   </ItemGroup>
 
 </Project>
