@@ -6,9 +6,9 @@
 //
 //    • the database container holding the sample's tables and Translations  (PostgreSQL)
 //    • the API       — samples/SampleApp            (EF Core provider)
-//    • MongoDB, as a one-node replica set
-//    • the dishes API — samples/SampleApp.MongoDb   (MongoDB provider)
-//    • the dashboard  — clients/dashboard (Nuxt)
+//    • MongoDB
+//    • the same API  — samples/SampleApp.MongoDb    (MongoDB provider)
+//    • the dashboard — clients/dashboard (Nuxt), pointed at either one
 //
 //  Both providers run at once, on purpose: the same library, the same endpoints, two very
 //  different data stores.
@@ -60,7 +60,7 @@ var multilingualDb = postgres.AddDatabase("multilingualdb");
 //  Not an alternative to the block above: a second provider running beside it, so both are up at
 //  once and the difference is something you can click through rather than read about.
 //
-//  Mongo Express is the counterpart to WithPgWeb: the quickest way to see that a dish's document
+//  Mongo Express is the counterpart to WithPgWeb: the quickest way to see that a product's document
 //  holds the English name while the translations collection holds Arabic and French, one document
 //  per property per language.
 //
@@ -74,7 +74,7 @@ var mongo = builder.AddMongoDB("mongo")
     .WithLifetime(ContainerLifetime.Persistent)
     .WithMongoExpress();
 
-var dishesDb = mongo.AddDatabase("dishesdb");
+var mongoDb = mongo.AddDatabase("multilingualmongodb");
 
 // ── API — samples/SampleApp ──────────────────────────────────────────────────
 // Its endpoints come from samples/SampleApp/Properties/launchSettings.json. Without that
@@ -91,12 +91,12 @@ var api = builder.AddProject<Projects.SampleApp>("api")
     .WithExternalHttpEndpoints();
 
 // ── API — samples/SampleApp.MongoDb ──────────────────────────────────────────
-// The same library over the MongoDB provider: one entity, the untracked read/write flow, and the
-// base-language rules a change tracker would have applied for you. No dashboard of its own — see
-// docs/mongodb.md for the requests to try.
-builder.AddProject<Projects.SampleApp_MongoDb>("dishes-api")
-    .WithReference(dishesDb)
-    .WaitFor(dishesDb)
+// The same API as above over the MongoDB provider: the same routes, the same request and response
+// bodies (literally the same DTO files), and the same Products and Categories. What differs is
+// inside the controllers — see docs/mongodb.md.
+var mongoApi = builder.AddProject<Projects.SampleApp_MongoDb>("mongo-api")
+    .WithReference(mongoDb)
+    .WaitFor(mongoDb)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
@@ -110,6 +110,10 @@ builder.AddJavaScriptApp("dashboard", "../../clients/dashboard", "dev")
     .WithReference(api)
     .WaitFor(api)
     // Consumed by server/api/[...path].ts, which proxies the browser's calls.
+    //
+    // Swap `api` for `mongoApi` here and the dashboard drives the MongoDB API instead, with no
+    // change to the dashboard itself: both serve the same routes and the same bodies. That is worth
+    // doing once — it is the clearest evidence that the provider is invisible from outside.
     .WithEnvironment("NUXT_MULTILINGUAL_API_URL", api.GetEndpoint("http"))
     // The sidebar's "API reference" link. Read in the browser, so it needs the public URL.
     .WithEnvironment("NUXT_PUBLIC_API_REFERENCE_URL",

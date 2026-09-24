@@ -5,11 +5,28 @@
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
     <RootNamespace>SampleApp.MongoDb</RootNamespace>
   </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
-    <!-- The provider. Where the EF Core sample references DotNetBoost.MultiLingual.EntityFrameworkCore. -->
+    <!-- The provider. This is the only line that differs from samples/SampleApp, which references
+         DotNetBoost.MultiLingual.EntityFrameworkCore here instead. -->
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.MongoDb/DotNetBoost.MultiLingual.MongoDb.csproj" />
     <ProjectReference Include="../../src/DotNetBoost.MultiLingual.API/DotNetBoost.MultiLingual.API.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Localization/DotNetBoost.MultiLingual.Localization.csproj" />
     <ProjectReference Include="../../aspire/DotNetBoost.MultiLingual.ServiceDefaults/DotNetBoost.MultiLingual.ServiceDefaults.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
+  <!--
+    The request and response types, and the error handling, are the EF Core sample's OWN FILES,
+    compiled into this project rather than copied. Two reasons, and both are the point of this
+    sample: nothing about the wire contract depends on the provider, so the dashboard in
+    clients/dashboard can be pointed at either API without a change; and a contract that lived in
+    two places would drift. What differs between the samples is the data access, which is local.
+  -->
+  <ItemGroup>
+    <Compile Include="../SampleApp/Dtos/*.cs" LinkBase="Dtos" />
+    <Compile Include="../SampleApp/Infrastructure/AppException.cs" LinkBase="Infrastructure" />
   </ItemGroup>
 </Project>

@@ -4,7 +4,8 @@
 properties out of your own documents. The library calls are the same ones an EF Core application
 makes — the engine is provider-neutral — so this page is only about what differs.
 
-`samples/SampleApp.MongoDb` is a runnable version of everything below.
+`samples/SampleApp.MongoDb` is a runnable version of everything below: the EF Core sample's own
+Products and Categories API, over this provider, serving the same routes and the same bodies.
 
 ## Setup
 
@@ -38,8 +39,8 @@ What it does for you:
 A driver query fills a document's own fields. The translatable ones arrive `null` until you ask:
 
 ```csharp
-var dishes = await collection.Find(filter).ToListAsync(ct);
-await multiLingual.LocalizeAsync(dishes, ct);        // Name and Description filled in
+var products = await collection.Find(filter).ToListAsync(ct);
+await multiLingual.LocalizeAsync(products, ct);       // Name and Description filled in
 ```
 
 `LocalizeAsync` batches its reads per entity type, so this is one translations query for the whole
@@ -50,15 +51,15 @@ list, not one per row. With EF Core the query interceptor does it and you never 
 The document is written first, because translations need a key to hang off:
 
 ```csharp
-await collection.InsertOneAsync(dish, cancellationToken: ct);   // the driver assigns Id here
-await multiLingual.For(dish).SaveAsync(ct);
+await collection.InsertOneAsync(product, cancellationToken: ct);   // its key now exists
+await multiLingual.For(product).SaveAsync(ct);
 ```
 
 Calling `SaveAsync` first is refused: an `ObjectId` the driver has not assigned yet is
 `ObjectId.Empty`, which the provider reads as "no key", so you get an `InvalidOperationException`
 instead of translations filed under `000000000000000000000000`.
 
-Deletes are the mirror image — `For(dish).DeleteAsync()` where EF Core's save interceptor would
+Deletes are the mirror image — `For(product).DeleteAsync()` where EF Core's save interceptor would
 have done it.
 
 ### 3. Base-language mode puts two duties on your code
@@ -74,7 +75,7 @@ throw the same exception and the library's `MultiLingualExceptionHandler` still 
 if (!multiLingual.Languages.IsBaseLanguage(multiLingual.CurrentLanguage.Code))
 {
     throw new BaseLanguageRequiredException(
-        nameof(Dish), multiLingual.Languages.BaseLanguage!, multiLingual.CurrentLanguage.Code);
+        nameof(Product), multiLingual.Languages.BaseLanguage!, multiLingual.CurrentLanguage.Code);
 }
 ```
 
@@ -82,22 +83,22 @@ if (!multiLingual.Languages.IsBaseLanguage(multiLingual.CurrentLanguage.Code))
 touch.** Two rules, one method:
 
 ```csharp
-await multiLingual.LocalizeAsync([dish], ct);   // first, so the engine knows what the READ served
+await multiLingual.LocalizeAsync([product], ct);   // first, so the engine knows what the READ served
 
 if (request.Name is not null)
-    dish.Name = request.Name;
+    product.Name = request.Name;
 else
     // Still holds what the read served. Say so, or the next save files that English as a
     // translation in the request's language — quietly turning English into Arabic.
-    multiLingual.For(dish).MarkAsBaseLanguageValues(d => d.Name);
+    multiLingual.For(product).MarkAsBaseLanguageValues(p => p.Name);
 
 // The field belongs in the DOCUMENT only in the base language. In any other language it belongs in
 // a translation document, so leave it out of the $set and let SaveAsync file it.
 if (multiLingual.Languages.IsBaseLanguage(multiLingual.CurrentLanguage.Code) && request.Name is not null)
-    updates.Add(Builders<Dish>.Update.Set(d => d.Name, request.Name));
+    updates.Add(Builders<Product>.Update.Set(p => p.Name, request.Name));
 
-await collection.UpdateOneAsync(d => d.Id == dish.Id, Builders<Dish>.Update.Combine(updates), cancellationToken: ct);
-await multiLingual.For(dish).SaveAsync(ct);
+await collection.UpdateOneAsync(p => p.Id == product.Id, Builders<Product>.Update.Combine(updates), cancellationToken: ct);
+await multiLingual.For(product).SaveAsync(ct);
 ```
 
 Without a base language none of this applies: translatable properties have no field at all, and
@@ -112,9 +113,9 @@ query and has no driver equivalent.
 A MongoDB application filters on what it stores, localizes, then sorts in memory:
 
 ```csharp
-var dishes = await collection.Find(filter).ToListAsync(ct);
-await multiLingual.LocalizeAsync(dishes, ct);
-dishes = dishes.Where(d => d.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) == true).ToList();
+var products = await collection.Find(filter).ToListAsync(ct);
+await multiLingual.LocalizeAsync(products, ct);
+products = products.Where(p => p.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) == true).ToList();
 ```
 
 Fine for a page of results. For a large collection, write a `$lookup` pipeline against the
@@ -132,7 +133,7 @@ To commit a document and its translations together, hand the store the session:
 using var session = await client.StartSessionAsync(ct);
 session.StartTransaction();
 
-await collection.InsertOneAsync(session, dish, cancellationToken: ct);
+await collection.InsertOneAsync(session, product, cancellationToken: ct);
 await writer.WithStore(store.WithSession(session)).WriteAsync(writes, ct);
 
 await session.CommitTransactionAsync(ct);
@@ -154,7 +155,7 @@ then initiate it once:
 docker exec multilingual-mongo mongosh --quiet --eval 'rs.initiate()'
 ```
 
-Connect with `mongodb://localhost:27017/shop?directConnection=true`.
+Connect with `mongodb://localhost:27017/multilingual?directConnection=true`.
 
 ## What stays exactly the same
 
@@ -166,4 +167,5 @@ fallback to the default language; and every exception and its HTTP mapping.
 ## Running the sample
 
 `samples/SampleApp.MongoDb` — see its [README](../samples/SampleApp.MongoDb/README.md). The Aspire
-AppHost starts it beside the EF Core sample, so both providers run at once.
+AppHost starts it beside the EF Core sample, so both providers run at once, and one line there points
+`clients/dashboard` at either.
