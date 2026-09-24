@@ -17,11 +17,6 @@
   <ItemGroup>
     <ProjectReference Include="../DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
     <PackageReference Include="MongoDB.Driver" />
-    <!-- MongoDB.Driver 3.8.1 brings SharpCompress 0.30.1, which carries GHSA-6c8g-7p36-r338.
-         The shipped packages do not pin transitives (see Directory.Packages.props), so lifting the
-         floor for consumers has to be a direct reference here. Drop it once the driver's own
-         dependency reaches 0.48.0 or later. -->
-    <PackageReference Include="SharpCompress" />
     <!-- IHostedService only, for the one-time index creation. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

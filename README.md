@@ -619,6 +619,10 @@ Filtering and sorting on translated values in the database is EF Core only: it r
 query, and there is no equivalent for a driver query. A MongoDB application filters on what it
 stores, then localizes what it read.
 
+[docs/mongodb.md](docs/mongodb.md) covers the four differences in full, and
+[samples/SampleApp.MongoDb](samples/SampleApp.MongoDb) is a runnable version of all of them — the
+Aspire AppHost starts it beside the EF Core sample, so both providers run at once.
+
 In base-language mode such a provider has one extra duty, because it has no change tracker to ask
 which properties a caller touched. Before saving in a language other than the base one, declare
 the ones that still hold the value the row was loaded with:

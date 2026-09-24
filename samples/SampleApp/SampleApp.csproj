@@ -33,14 +33,4 @@
     <!-- <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" /> -->
   </ItemGroup>
 
-  <!--
-    MongoDB is a different PROVIDER, not just a different engine, so this alternative swaps the
-    project reference as well: DotNetBoost.MultiLingual.MongoDb replaces
-    DotNetBoost.MultiLingual.EntityFrameworkCore above, and the EF Core database packages and the
-    health-check package go with it. Data/AppDbContext.cs and Data/DbInitializer.cs then hold code
-    nothing calls — see the commented blocks in each for the MongoDB shape.
-  -->
-  <ItemGroup Label="Database — ALTERNATIVE: MongoDB">
-    <!-- <ProjectReference Include="../../src/DotNetBoost.MultiLingual.MongoDb/DotNetBoost.MultiLingual.MongoDb.csproj" /> -->
-  </ItemGroup>
 </Project>

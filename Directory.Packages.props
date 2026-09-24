@@ -49,10 +49,12 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
   </ItemGroup>
 
-  <!-- Versions match DotNetBoost.Settings so both libraries can share one driver in the same
-       application. -->
+  <!-- A FLOOR for the shipped provider, not a ceiling: an application on a newer 3.x keeps it.
+       3.9.0 rather than 3.8.1 (which DotNetBoost.Settings pins) for two reasons — Aspire.Hosting.
+       MongoDB 13.5.2 requires >= 3.9.0, and 3.8.1 dragged in SharpCompress 0.30.1 with
+       GHSA-6c8g-7p36-r338, which 3.9.0 no longer does. -->
   <ItemGroup Label="MongoDB">
-    <PackageVersion Include="MongoDB.Driver" Version="3.8.1" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.9.0" />
   </ItemGroup>
 
   <!--
@@ -65,8 +67,6 @@
 
   <!-- Transitive pins: patched versions for packages flagged by NuGet audit. -->
   <ItemGroup Label="Transitive security pins">
-    <!-- MongoDB.Driver -> SharpCompress 0.30.1 (GHSA-6c8g-7p36-r338, patched in 0.48.0). -->
-    <PackageVersion Include="SharpCompress" Version="0.48.1" />
     <!-- Microsoft.Data.Sqlite -> SQLitePCLRaw.* 2.1.11 (GHSA-2m69-gcr7-jv3q, fixed after 2.1.11). -->
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
     <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />

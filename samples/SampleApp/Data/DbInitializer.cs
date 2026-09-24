@@ -100,68 +100,8 @@ public static class DbInitializer
         await db.SaveChangesAsync(ct);
     }
 
-    //  MongoDB — the same seed
-    //
-    //  The languages and the Translate(...) calls below are unchanged: creating a language and
-    //  queueing a translation are engine calls, not provider calls. What changes is the three lines
-    //  around them — no EnsureCreated/Migrate (the provider creates its indexes at startup, and
-    //  collections appear on first write), an explicit key per document, and one SaveAsync per
-    //  entity because there is no SaveChanges to collect them.
-    //
-    //  public static async Task InitializeAsync(IServiceProvider services, CancellationToken ct = default)
-    //  {
-    //      using var scope = services.CreateScope();
-    //      var provider = scope.ServiceProvider;
-    //
-    //      var database     = provider.GetRequiredService<IMongoDatabase>();
-    //      var multiLingual = provider.GetRequiredService<IMultiLingualManager>();
-    //
-    //      var categories = database.GetCollection<Category>("categories");
-    //      var products   = database.GetCollection<Product>("products");
-    //
-    //      if ((await multiLingual.Languages.GetAllAsync(ct)).Count > 0)
-    //          return;
-    //
-    //      await multiLingual.Languages.CreateAsync(new NewLanguage { Code = "en", Name = "English" }, ct);
-    //      await multiLingual.Languages.CreateAsync(new NewLanguage { Code = "ar", Name = "العربية" }, ct);
-    //      await multiLingual.Languages.CreateAsync(new NewLanguage { Code = "fr", Name = "Français" }, ct);
-    //
-    //      await multiLingual.Languages.GetDefaultAsync(ct);
-    //
-    //      var electronics = new Category
-    //      {
-    //          Id = 1, Slug = "electronics", DisplayOrder = 1,
-    //          Name = "Electronics", Description = "Devices, gadgets and accessories."
-    //      };
-    //      Translate(multiLingual, electronics, "ar", "إلكترونيات", "أجهزة وملحقات إلكترونية.");
-    //      Translate(multiLingual, electronics, "fr", "Électronique", "Appareils et accessoires.");
-    //
-    //      var books = new Category
-    //      {
-    //          Id = 2, Slug = "books", DisplayOrder = 2,
-    //          Name = "Books", Description = "Paper and digital books."
-    //      };
-    //      Translate(multiLingual, books, "ar", "كتب", "كتب ورقية ورقمية.");
-    //
-    //      // The documents first — English rides along in the mapped base-language field — then the
-    //      // queued Arabic and French become translation documents. No language is resolved here, so
-    //      // SaveAsync writes only what Translate(...) staged.
-    //      await categories.InsertManyAsync([electronics, books], cancellationToken: ct);
-    //      foreach (var category in new[] { electronics, books })
-    //          await multiLingual.For(category).SaveAsync(ct);
-    //
-    //      // …the three products in the same shape, with Id = 1, 2, 3 and CategoryId pointing at the
-    //      // categories above, then:
-    //      //   await products.InsertManyAsync([laptop, mouse, notebook], cancellationToken: ct);
-    //      //   foreach (var product in new[] { laptop, mouse, notebook })
-    //      //       await multiLingual.For(product).SaveAsync(ct);
-    //      //
-    //      // Keep notebook without translations: the fallback is the point of seeding it.
-    //
-    //      // Ids are assigned by hand because these entities keep an `int` key, which MongoDB does
-    //      // not generate; the counters collection the controllers use starts from whatever is seeded
-    //      // here. A model with ObjectId keys lets the driver assign them during the insert.
-    //  }
+    // The same seed over MongoDB — languages and Translate(...) unchanged, one SaveAsync per
+    // document instead of SaveChanges — is in samples/SampleApp.MongoDb/Program.cs.
 
     /// <summary>Queues one non-base language for the next save of <paramref name="entity"/>.</summary>
     private static void Translate<T>(IMultiLingualManager multiLingual, T entity, string language, string name, string description)

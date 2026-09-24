@@ -37,6 +37,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetBoost.MultiLingual.Se
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetBoost.MultiLingual.MongoDb", "src\DotNetBoost.MultiLingual.MongoDb\DotNetBoost.MultiLingual.MongoDb.csproj", "{709F13D3-EE20-4908-A745-6D6AE1E3D81A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SampleApp.MongoDb", "samples\SampleApp.MongoDb\SampleApp.MongoDb.csproj", "{25C5969B-28E1-4A9C-8013-A60C205DF944}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -203,6 +205,18 @@ Global
 		{709F13D3-EE20-4908-A745-6D6AE1E3D81A}.Release|x64.Build.0 = Release|Any CPU
 		{709F13D3-EE20-4908-A745-6D6AE1E3D81A}.Release|x86.ActiveCfg = Release|Any CPU
 		{709F13D3-EE20-4908-A745-6D6AE1E3D81A}.Release|x86.Build.0 = Release|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Debug|x64.Build.0 = Debug|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Debug|x86.Build.0 = Debug|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Release|Any CPU.Build.0 = Release|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Release|x64.ActiveCfg = Release|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Release|x64.Build.0 = Release|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Release|x86.ActiveCfg = Release|Any CPU
+		{25C5969B-28E1-4A9C-8013-A60C205DF944}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -221,5 +235,6 @@ Global
 		{A026812F-019B-47CE-8D5F-82267577FD16} = {64880D93-BAB4-FF83-898C-B934B68C31A9}
 		{82E0436D-8DE7-4372-8FB9-11E158407878} = {64880D93-BAB4-FF83-898C-B934B68C31A9}
 		{709F13D3-EE20-4908-A745-6D6AE1E3D81A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{25C5969B-28E1-4A9C-8013-A60C205DF944} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal

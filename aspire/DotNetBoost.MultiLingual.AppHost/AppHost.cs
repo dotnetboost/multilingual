@@ -5,13 +5,18 @@
 //  though `aspire run` does the same if you have it installed:
 //
 //    • the database container holding the sample's tables and Translations  (PostgreSQL)
-//    • the API      — samples/SampleApp
-//    • the dashboard — clients/dashboard (Nuxt)
+//    • the API       — samples/SampleApp            (EF Core provider)
+//    • MongoDB, as a one-node replica set
+//    • the dishes API — samples/SampleApp.MongoDb   (MongoDB provider)
+//    • the dashboard  — clients/dashboard (Nuxt)
 //
-//  Exactly ONE database block below is active. Each alternative is written out in full and
-//  commented; to switch, comment the active block, uncomment the one you want, uncomment its
-//  PackageReference in DotNetBoost.MultiLingual.AppHost.csproj, and flip the matching blocks
-//  in samples/SampleApp/Program.cs and samples/SampleApp/SampleApp.csproj.
+//  Both providers run at once, on purpose: the same library, the same endpoints, two very
+//  different data stores.
+//
+//  The EF Core sample's ENGINE is swappable — exactly one of its database blocks below is active,
+//  each alternative written out and commented. To switch, comment the active block, uncomment the
+//  one you want, uncomment its PackageReference in DotNetBoost.MultiLingual.AppHost.csproj, and
+//  flip the matching blocks in samples/SampleApp/Program.cs and samples/SampleApp/SampleApp.csproj.
 // ─────────────────────────────────────────────────────────────────────────────
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -49,26 +54,27 @@ var multilingualDb = postgres.AddDatabase("multilingualdb");
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Database — ALTERNATIVE: MongoDB
+//  MongoDB — for samples/SampleApp.MongoDb
 //  Package: Aspire.Hosting.MongoDB
 //
-//  The resource name stays "multilingualdb", so the API reads the same
-//  ConnectionStrings:multilingualdb and nothing below this block changes. Mongo Express is the
-//  counterpart to WithPgWeb above: the quickest way to see that a product's document holds the
-//  English name while the translations collection holds Arabic and French, one document per
-//  property per language.
+//  Not an alternative to the block above: a second provider running beside it, so both are up at
+//  once and the difference is something you can click through rather than read about.
 //
-//  WithReplicaSet: a single node is enough, and it is what makes transactions available — the
-//  provider's store.WithSession(session) needs one, and against a standalone mongod a document and
-//  its translations cannot commit together. See the MongoDB section of README.md.
+//  Mongo Express is the counterpart to WithPgWeb: the quickest way to see that a dish's document
+//  holds the English name while the translations collection holds Arabic and French, one document
+//  per property per language.
+//
+//  This is a STANDALONE mongod — Aspire.Hosting.MongoDB 13.5.2 has no WithReplicaSet — so
+//  transactions are not available here, and the provider's store.WithSession(session) has nothing
+//  to enlist in. The sample does not need them. To try them, run a one-node replica set yourself
+//  and point the sample at it; docs/mongodb.md has the command.
 // ─────────────────────────────────────────────────────────────────────────────
-// var mongo = builder.AddMongoDB("mongo")
-//     .WithDataVolume("dotnetboost-multilingual-mongodata")
-//     .WithLifetime(ContainerLifetime.Persistent)
-//     .WithReplicaSet()
-//     .WithMongoExpress();
-//
-// var multilingualDb = mongo.AddDatabase("multilingualdb");
+var mongo = builder.AddMongoDB("mongo")
+    .WithDataVolume("dotnetboost-multilingual-mongodata")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithMongoExpress();
+
+var dishesDb = mongo.AddDatabase("dishesdb");
 
 // ── API — samples/SampleApp ──────────────────────────────────────────────────
 // Its endpoints come from samples/SampleApp/Properties/launchSettings.json. Without that
@@ -81,6 +87,16 @@ var api = builder.AddProject<Projects.SampleApp>("api")
     // this is what makes the dashboard's WaitFor(api) below hold until Postgres actually
     // answers rather than merely until the process is up. MapDefaultEndpoints only maps
     // /health in Development — drop this line if you ever publish this AppHost.
+    .WithHttpHealthCheck("/health")
+    .WithExternalHttpEndpoints();
+
+// ── API — samples/SampleApp.MongoDb ──────────────────────────────────────────
+// The same library over the MongoDB provider: one entity, the untracked read/write flow, and the
+// base-language rules a change tracker would have applied for you. No dashboard of its own — see
+// docs/mongodb.md for the requests to try.
+builder.AddProject<Projects.SampleApp_MongoDb>("dishes-api")
+    .WithReference(dishesDb)
+    .WaitFor(dishesDb)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 

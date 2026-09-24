@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    <RootNamespace>SampleApp.MongoDb</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.Core/DotNetBoost.MultiLingual.Core.csproj" />
+    <!-- The provider. Where the EF Core sample references DotNetBoost.MultiLingual.EntityFrameworkCore. -->
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.MongoDb/DotNetBoost.MultiLingual.MongoDb.csproj" />
+    <ProjectReference Include="../../src/DotNetBoost.MultiLingual.API/DotNetBoost.MultiLingual.API.csproj" />
+    <ProjectReference Include="../../aspire/DotNetBoost.MultiLingual.ServiceDefaults/DotNetBoost.MultiLingual.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

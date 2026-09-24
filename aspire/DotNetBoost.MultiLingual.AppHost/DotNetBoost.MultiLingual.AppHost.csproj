@@ -23,17 +23,21 @@
          its alternative needs. -->
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
 
-    <!-- Alternative databases — uncomment alongside the matching block in AppHost.cs. -->
+    <!-- Backs samples/SampleApp.MongoDb, which runs beside the EF Core sample. -->
+    <PackageReference Include="Aspire.Hosting.MongoDB" />
+
+    <!-- Alternative engine for the EF Core sample — uncomment alongside its block in AppHost.cs. -->
     <!-- <PackageReference Include="Aspire.Hosting.SqlServer" /> -->
-    <!-- <PackageReference Include="Aspire.Hosting.MongoDB" /> -->
 
     <!-- Runs the Nuxt dashboard in clients/dashboard as an orchestrated resource. -->
     <PackageReference Include="Aspire.Hosting.JavaScript" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The API host. IsAspireProjectResource makes the Aspire SDK emit Projects.SampleApp. -->
+    <!-- The API hosts. IsAspireProjectResource makes the Aspire SDK emit Projects.SampleApp
+         and Projects.SampleApp_MongoDb. -->
     <ProjectReference Include="../../samples/SampleApp/SampleApp.csproj" />
+    <ProjectReference Include="../../samples/SampleApp.MongoDb/SampleApp.MongoDb.csproj" />
   </ItemGroup>
 
 </Project>
