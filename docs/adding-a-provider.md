@@ -17,6 +17,12 @@ engine behind `IMultiLingualManager`. What a store does have to get right:
 | Take entity names from `MultiLingualMetadata.EntityNameFor(type)`, never `type.Name`, and size the column for `MultiLingualMetadata.MaxEntityNameLength`. | Types can fix their stored name with `[MultiLingualEntity]`. |
 | Writes join whatever unit of work the application is in (Dapper: the ambient `IDbTransaction`; MongoDB: the `IClientSessionHandle`). | An entity and its translations commit or roll back together. |
 
+Two of those rules — writes joining the caller's unit of work, and the atomic default-language
+flip — need real transactions. On MongoDB that means a session, and a session means a replica set
+or a sharded cluster: against a standalone `mongod` both degrade into separate writes that can
+leave a half-applied change behind. It is a deployment prerequisite, not an implementation detail,
+so state it in the provider's README as well as here.
+
 Suggested shapes:
 
 - **Dapper** — `Translations` / `Languages` tables identical to the EF provider's (see
@@ -42,7 +48,13 @@ public static MultiLingualBuilder UseDapper(this MultiLingualBuilder builder, Fu
 ```
 
 If the backend knows entity keys better than the naming convention (`[Key]`, `Id`,
-`{Type}Id`), replace `IEntityKeyAccessor` too — MongoDB could read `[BsonId]` / the class map.
+`{Type}Id`), replace `IEntityKeyAccessor` too, as the EF Core provider does. **On MongoDB you
+must**: read the id from `[BsonId]` / the class map, and return `null` when it is `ObjectId.Empty`.
+The driver assigns the id during the insert, so an un-inserted document still holds the empty one —
+and `EntityKey.IsUnset` cannot recognise it, because Core does not reference the driver. Left to
+the convention, an empty `ObjectId` reads as a perfectly good key and the document's translations
+are written under `000000000000000000000000` instead of raising "save the entity first". Compose
+the public `ConventionEntityKeyAccessor` for the types you do not recognise yourself.
 
 ## 3. Save through `ITranslationWriter`
 
@@ -63,7 +75,12 @@ synchronous save.
 ## 4. Keep translated properties out of the entity's own storage
 
 - **MongoDB:** unmap them from the class map (`BsonClassMap` → `UnmapMember`) for every type
-  `MultiLingualMetadata.For(type)` returns properties for.
+  `MultiLingualMetadata.For(type)` returns properties for — but **only when
+  `MultiLingualOptions.HasBaseLanguage` is false**. In base-language mode a translatable property
+  keeps its field, and that field holds the base language's value every missing translation falls
+  back to, so unmapping it would throw the base text away. Check `HasBaseLanguage` before
+  unmapping anything, and `IsBaseLanguage(code)` wherever the provider decides whether a value is
+  a translation or the base value.
 - **Dapper:** nothing to do on read — there is no column, so they stay `null`. Document that
   INSERT/UPDATE statements must not reference them.
 

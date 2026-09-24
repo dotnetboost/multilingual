@@ -36,6 +36,18 @@ public static class EntityKey
     /// True when <paramref name="value"/> is the CLR default for its key type — an entity whose
     /// store-generated key has not been assigned yet, and so cannot be addressed.
     /// </summary>
+    /// <remarks>
+    /// Only the key types listed below are recognised. A value of any OTHER type reads as SET,
+    /// even at its own default — a strongly-typed id struct, or <c>ObjectId.Empty</c> — because
+    /// Core cannot reference a provider's types to know better.
+    /// <para>
+    /// A provider whose keys use such a type must therefore return <c>null</c> from its
+    /// <see cref="DotNetBoost.MultiLingual.Core.Interfaces.IEntityKeyAccessor"/> for the
+    /// unassigned value: the accessors are the only callers of this method, so that is the one
+    /// place the knowledge exists. Left to this method, an unsaved entity looks addressable and
+    /// its translations are stored under the default value's string form.
+    /// </para>
+    /// </remarks>
     public static bool IsUnset(object? value) => value switch
     {
         null     => true,
