@@ -39,7 +39,18 @@ adoptable on a database that already has `Name` and `Description` full of data.
 | `DotNetBoost.MultiLingual.MongoDb` | MongoDB provider. Translations in one collection keyed by the natural key; translatable properties unmapped from the entity's own documents. No change tracker to hook, so reads and writes go through `IMultiLingualManager` — see [providers without change tracking](#providers-without-change-tracking). |
 | `DotNetBoost.MultiLingual.Dapper` | Dapper provider. Translations in one table keyed by the natural key, in the same schema the EF Core provider maps — and it can create that schema for you with `migrateSchema: true`. SQL Server, PostgreSQL, SQLite. No change tracker to hook, so reads and writes go through `IMultiLingualManager` — see [providers without change tracking](#providers-without-change-tracking). |
 
-All packages target `net8.0` and `net10.0`.
+## Requirements
+
+- **.NET 8 or .NET 10.** Every package targets `net8.0` and `net10.0`.
+- **A single-column key on each translatable entity.** `Translation.EntityId` holds one value, so
+  composite keys are not supported — give the entity a surrogate key first.
+- **A key of at most 64 characters** written as text. Every numeric key and a `Guid` fit; a longer
+  `string` key is refused when its translations are written.
+
+The last two are properties of the translations table, not settings, so check them before you
+build on this. The rest of what is worth knowing up front — `AddDbContextPool`, deletes that
+bypass `SaveChanges`, relational providers only, and what a query does and does not fill — is
+under [known limitations](#known-limitations).
 
 ## Quick start (EF Core + ASP.NET Core)
 
