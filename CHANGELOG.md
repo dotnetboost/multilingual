@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
-## [1.0.0-preview.1] - Unreleased
+## [1.0.0-preview.1] - 2026-09-25
 
 First public release: translatable content for any entity, driven by a `[MultiLingual]` attribute,
 with Entity Framework Core, MongoDB and Dapper providers and ASP.NET Core integration. The API may

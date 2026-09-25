@@ -33,8 +33,8 @@ filters on the *translated* text, in the database.
 
 Works with **.NET 8 and .NET 10**, on **SQL Server, PostgreSQL, SQLite or MongoDB**.
 
-> **Status:** pre-release. The packages are not on NuGet yet, so until the first release, reference
-> `src/DotNetBoost.MultiLingual.*` from a clone of this repository. The API may still change.
+> **Status:** preview. The packages are on NuGet as `1.0.0-preview.1`, so installing them needs
+> `--prerelease` — every command below has it. The API may still change before 1.0.0.
 
 ---
 
