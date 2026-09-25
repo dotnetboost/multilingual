@@ -189,6 +189,6 @@ application keeps the versions its runtime ships.
 
 ### Known limitations
 Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
-The README lists them all, with the reasons.
+`docs/limitations.md` lists them all, with the reasons.
 
 [1.0.0-preview.1]: https://github.com/dotnetboost/multilingual/releases/tag/v1.0.0-preview.1

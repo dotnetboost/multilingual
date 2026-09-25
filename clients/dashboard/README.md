@@ -98,6 +98,35 @@ marked in the list, until saved or reset. An empty field that has nothing stored
 what reads in that language fall back to. **Clear translation** calls
 `DELETE api/{route}/{id}/translations/{code}` where the registry says the API has it (`clearable`).
 
+## The dashboard's own language
+
+The picker in the header of every page chooses one language for the whole dashboard. It lists the
+API's **active** languages — the bundled ones below until they load, or when the API is unreachable,
+so the dashboard can always be switched — and the choice is remembered in the browser. A language
+that is later deactivated or deleted falls back to the default. The choice drives three things:
+
+- **The text.** Menus, labels, buttons, toasts and confirmations come from `app/locales`. English,
+  Arabic and French are bundled; a language without an entry there shows English text, laid out in
+  its own direction. Lookups fall back to English key by key, so a partial translation is fine.
+- **The direction.** `<html dir>` follows the language's own direction as the API reports it, so an
+  `rtl` language such as Arabic flips the whole layout.
+- **The content language.** The content lists are read in it, and every API call that does not set
+  `Accept-Language` itself carries it, so the API's own messages — problem details included — come
+  back in the same language. Calls that read or write one particular language set the header
+  explicitly and are left alone.
+
+| File | Role |
+|---|---|
+| `app/locales/index.ts` | The bundled languages, each with its Nuxt UI locale for the components' built-in labels |
+| `app/locales/en.ts` | The message shape; `ar.ts` and `fr.ts` follow it |
+| `app/composables/useI18n.ts` | The chosen language, `t()` and the direction |
+| `app/plugins/accept-language.client.ts` | Adds `Accept-Language` to API calls that do not set one |
+
+Adding a language to the dashboard's own text is one file with the shape of `app/locales/en.ts`,
+listed in `app/locales/index.ts` with the matching locale from `@nuxt/ui/locale`. Content types are
+translated under `types.{route}`. Note that this is separate from the languages the *API* serves:
+adding one here only translates the dashboard's chrome.
+
 ## Adding a content type
 
 1. Add an entry to `contentTypes` in `app/utils/content.ts`, with `route` matching the controller

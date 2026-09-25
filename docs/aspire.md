@@ -23,7 +23,7 @@ What comes up:
 
 | Resource | What it is |
 |---|---|
-| `postgres` | PostgreSQL 18 container, named volume, persistent across runs |
+| `postgres` | PostgreSQL container, named volume, persistent across runs |
 | `multilingualdb` | The EF Core sample's database |
 | `multilingualdapperdb` | The Dapper sample's database, on the same server — so the two schemas can be compared in pgweb. They are identical, which is the claim that provider makes |
 | `pgweb` | Browser SQL client, reaching both: `Products.Name` holds English, `Translations` every other language |
@@ -32,8 +32,7 @@ What comes up:
 | `api` | `samples/SampleApp` on `http://localhost:5160` — EF Core provider |
 | `mongo-api` | `samples/SampleApp.MongoDb` on `http://localhost:5170` — MongoDB provider |
 | `dapper-api` | `samples/SampleApp.Dapper` on `http://localhost:5180` — Dapper provider |
-| `dashboard-installer` | `npm install` for the Nuxt client, run once before the dev server |
-| `dashboard` | `clients/dashboard` — `npm run dev`, wired to one of the APIs automatically |
+| `dashboard` | `clients/dashboard` — `npm install` then `npm run dev`, wired to one of the APIs automatically |
 
 Each API serves the same routes and the same request and response bodies — the DTO files are shared
 — so the dashboard can be pointed at any of them by changing one line in `AppHost.cs`. All three
@@ -65,7 +64,11 @@ over, stop the AppHost and remove the container and its volume:
 
 ```bash
 docker rm -f $(docker ps -aq --filter name=postgres-) && docker volume rm dotnetboost-multilingual-pgdata
+docker rm -f $(docker ps -aq --filter name=mongo-) && docker volume rm dotnetboost-multilingual-mongodata
 ```
+
+Both containers use `ContainerLifetime.Persistent`, so they outlive the AppHost and have to be
+removed explicitly.
 
 ## Another database
 
