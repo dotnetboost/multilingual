@@ -1,5 +1,6 @@
 # DotNetBoost.MultiLingual
 
+[![NuGet](https://img.shields.io/nuget/vpre/DotNetBoost.MultiLingual.Core?label=nuget)](https://www.nuget.org/packages/DotNetBoost.MultiLingual.Core)
 [![CI](https://github.com/dotnetboost/multilingual/actions/workflows/ci.yml/badge.svg)](https://github.com/dotnetboost/multilingual/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%2010.0-512BD4)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/dotnetboost/multilingual/blob/main/LICENSE)
