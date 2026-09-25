@@ -319,10 +319,15 @@ jobs:
               -p:RepositoryCommit=${{ github.sha }}
           done
 
+      # Both globs: `*.nupkg` does not match `*.snupkg`, so listing only the first one left the
+      # symbol packages behind in this job and the publish below pushed no symbols at all —
+      # `dotnet nuget push` picks a .snupkg up only when it sits next to its own .nupkg.
       - uses: actions/upload-artifact@v4
         with:
           name: nuget-packages
-          path: ./nupkgs/*.nupkg
+          path: |
+            ./nupkgs/*.nupkg
+            ./nupkgs/*.snupkg
           retention-days: 30
 
   # ───────────────────────────────────────────────────────────────────────
@@ -422,9 +427,11 @@ jobs:
             --name github --username ${{ github.actor }} \
             --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text
 
+      # --no-symbols: GitHub Packages rejects symbol packages, and push would otherwise send the
+      # .snupkg sitting next to each .nupkg. Symbols go to NuGet.org only.
       - run: |
           for pkg in ./nupkgs/*.nupkg; do
-            dotnet nuget push "$pkg" --source github --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
+            dotnet nuget push "$pkg" --source github --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate --no-symbols
           done
 
   # ───────────────────────────────────────────────────────────────────────
