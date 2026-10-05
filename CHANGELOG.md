@@ -29,6 +29,17 @@ code. Both now ship here.
   which would confirm which names exist. With nothing exposed, `MapTranslationEndpoints()` maps
   nothing and logs a warning at startup. Authorization stays the application's: compose it on the
   returned route group, as with `MapLanguageEndpoints()`.
+- **A *Key discovery* rule in the published spec.** The `[Key]` → `Id` → `{TypeName}Id` order was
+  always implemented and never written down, so nothing versioned it and nothing tested it — which
+  is how DotNetBoost.Media came to resolve a composite key where this library refuses one, with
+  both still publishing v1. The README's Entity Addressing table now carries it, and
+  `AddressingVersion`'s "bump it for ANY change" list names all five rule areas: entity-name
+  resolution, key discovery, key formatting, unset-key detection, and the two length limits.
+- `EntityAddressing` gained `AssertUnsetDetection(isKeyUnset, libraryName)` and
+  `AssertKeyDiscovery(discoverKey, libraryName)`, and `AssertAgreesWith` takes both as optional
+  arguments. The constants alone cannot speak for behaviour, and behaviour is where two libraries
+  actually drift. Both throw `InvalidOperationException` naming the difference, like the rest of
+  the suite, so they stay usable from any test framework or a startup check.
 - **`EntityKey.AddressingVersion`** — the version of *DotNetBoost Entity Addressing*, now written
   out as a spec in the README: how an entity name is resolved, how a key is formatted, and the two
   length limits. Every DotNetBoost library sharing subject addressing publishes the same constant,
@@ -53,6 +64,21 @@ code. Both now ship here.
   `DbSet<Translation>` and `DbSet<Language>` properties it required can go too, unless your own code
   queries those rows — they map to the same tables either way. It is kept for one release so an
   existing context still compiles.
+
+### Fixed
+- **A whitespace-only string key was accepted and filed rows under it.** It is not "unset" — `"   "`
+  has a length — so it passed `ToKeyString` unchanged, while DotNetBoost.Media refused the same
+  value as its spec row has always said ("a key must not be empty or whitespace"). Translations
+  written under such a key could never be joined to another library's rows. `ToKeyString` now
+  refuses empty and whitespace, at the call that made the mistake. Found by running Media's
+  conformance suite against this library for the first time — neither repo's own tests could see
+  it, which is the whole argument for the suite.
+- The README's Entity Addressing table claimed entity names are "compared case-insensitively, as a
+  case-insensitive database collation would". They are compared as written, with a plain `==` that
+  the database's own collation decides — case-sensitive under PostgreSQL's default, insensitive
+  under SQL Server's. The row now says so, and says to pass the resolved name rather than one typed
+  by hand. DotNetBoost.Media behaves identically here, so nothing diverged; the claim was simply
+  stronger than the code.
 
 ## [1.0.0-preview.1] - 2026-09-25
 

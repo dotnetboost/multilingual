@@ -30,9 +30,14 @@ public static class EntityKey
     /// </para>
     ///
     /// <para>
-    /// <b>Bump it for ANY change</b> to <see cref="ToKeyString"/>, to
-    /// <see cref="MultiLingualMetadata.EntityNameFor"/>, to <see cref="MaxLength"/> or to
-    /// <see cref="MultiLingualMetadata.MaxEntityNameLength"/>. Nothing else may change it.
+    /// <b>Bump it for ANY change</b> to entity-name resolution
+    /// (<see cref="MultiLingualMetadata.EntityNameFor"/>), to key discovery (the
+    /// <c>[Key]</c> → <c>Id</c> → <c>{TypeName}Id</c> order the convention accessor applies), to
+    /// key formatting (<see cref="ToKeyString"/>), to unset-key detection
+    /// (<see cref="IsUnset"/>), or to either length limit (<see cref="MaxLength"/>,
+    /// <see cref="MultiLingualMetadata.MaxEntityNameLength"/>). Nothing else may change it —
+    /// and a rule left off this list is how two libraries drift while both still claim the same
+    /// version.
     /// <c>DotNetBoost.MultiLingual.TestSupport</c>'s <c>EntityAddressing</c> runs the conformance
     /// suite for the version named here.
     /// </para>
@@ -45,21 +50,45 @@ public static class EntityKey
     /// </summary>
     public const int MaxLength = 64;
 
-    /// <summary>Formats a key value invariantly.</summary>
+    /// <summary>
+    /// Formats a key value invariantly, refusing one that cannot address a row at all.
+    /// <para>
+    /// Empty and whitespace are refused here rather than at the write, for the same reason an
+    /// entity name's length is checked early: the error names the call that made the mistake. It is
+    /// also where DotNetBoost.Media refuses them, so both libraries reject the same keys at the
+    /// same point and the conformance suite can compare them through one hook.
+    /// </para>
+    /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="keyValue"/> is null.</exception>
-    public static string ToKeyString(object keyValue) => keyValue switch
+    /// <exception cref="InvalidOperationException">The formatted key is empty or whitespace.</exception>
+    public static string ToKeyString(object keyValue)
     {
-        null           => throw new ArgumentNullException(nameof(keyValue)),
-        Guid guid      => guid.ToString("D", CultureInfo.InvariantCulture),
-        string s       => s,
-        int i          => i.ToString(CultureInfo.InvariantCulture),
-        long l         => l.ToString(CultureInfo.InvariantCulture),
-        short sh       => sh.ToString(CultureInfo.InvariantCulture),
-        byte b         => b.ToString(CultureInfo.InvariantCulture),
-        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-        _              => keyValue.ToString() ?? throw new InvalidOperationException(
-            $"Cannot convert key of type '{keyValue.GetType().Name}' to a translation key.")
-    };
+        var text = keyValue switch
+        {
+            null           => throw new ArgumentNullException(nameof(keyValue)),
+            Guid guid      => guid.ToString("D", CultureInfo.InvariantCulture),
+            string s       => s,
+            int i          => i.ToString(CultureInfo.InvariantCulture),
+            long l         => l.ToString(CultureInfo.InvariantCulture),
+            short sh       => sh.ToString(CultureInfo.InvariantCulture),
+            byte b         => b.ToString(CultureInfo.InvariantCulture),
+            IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+            _              => keyValue.ToString() ?? throw new InvalidOperationException(
+                $"Cannot convert key of type '{keyValue.GetType().Name}' to a translation key.")
+        };
+
+        // Whitespace is the one that mattered: it is not unset — "   " has a length — so it used to
+        // pass as a key, and rows filed under it could never be joined to a library that refuses it.
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("An entity key cannot be empty or whitespace.");
+
+        // The LENGTH limit is deliberately NOT checked here. TranslationManager refuses an
+        // over-long key at the write, where it can name the entity as well as the key and its
+        // length — a better error than this method could give, and the one its tests protect.
+        // Enforcement layer is each library's own business; the limit itself is the shared rule,
+        // and MaxLength is what the conformance suite compares.
+        return text;
+    }
 
     /// <summary>
     /// True when <paramref name="value"/> is the CLR default for its key type — an entity whose

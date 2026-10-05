@@ -290,10 +290,11 @@ than a coincidence.
 | | Rule |
 |---|---|
 | **Entity name** | The name fixed by `[MultiLingualEntity("…")]` or `[MultiLingual(EntityName = "…")]`; otherwise the CLR type's `Name` (not its full name, so a namespace move changes nothing). A class generated at runtime — an EF Core lazy-loading proxy, any dynamic-assembly subclass — is addressed as the class it derives from. |
-| **Name length** | At most 128 characters. Compared case-insensitively, as a case-insensitive database collation would. |
+| **Name length** | At most 128 characters. Stored and compared as written: resolution yields one casing for a given type, so case only matters for a name passed by hand, where whether `"mediafile"` reaches `"MediaFile"`'s rows is the database collation's business. Pass the resolved name. |
+| **Key discovery** | The single property marked `[Key]`, else one named `Id`, else one named `{TypeName}Id` — public, instance, readable, and not an indexer. More than one `[Key]` is a composite key and is **refused**: one column holds one value, and reflection does not order properties, so picking one would key the entity on whichever this runtime happened to return. A provider with a model to read replaces this — both EF Core providers do — and is authoritative where the two disagree. |
 | **Key format** | Invariant culture. `Guid` → `"D"` (lower case, hyphenated, no braces). `int`, `long`, `short`, `byte` → their invariant decimal form. `string` → itself, case preserved. Any other `IFormattable` → invariant `ToString`. |
 | **Key length** | At most 64 characters — a `Guid` in `"D"` form is 36, and every numeric key fits with room to spare. A longer key is refused where it is written, not silently truncated by the database. |
-| **Unset keys** | `0`, `Guid.Empty` and `""` mean "not assigned yet" and address nothing. A provider whose keys are a custom struct must return `null` from its `IEntityKeyAccessor` for its own unassigned value. |
+| **Unset keys** | `null`, `0` (of any integer width), `Guid.Empty` and `""` mean "not assigned yet" and address nothing. A provider whose keys are a custom struct must return `null` from its `IEntityKeyAccessor` for its own unassigned value — Core cannot recognise a type it may not reference. |
 
 Because an id is formatted by the library, `For("X", 42)` and `For("X", "42")` reach the same rows.
 
