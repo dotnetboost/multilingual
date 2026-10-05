@@ -10,6 +10,8 @@ namespace DotNetBoost.MultiLingual.Core.Interfaces;
 ///   <item><see cref="CurrentLanguage"/> — the language this request (or job) reads and writes in.</item>
 ///   <item><see cref="Languages"/> — find, list and administer languages.</item>
 ///   <item><see cref="For{T}(T)"/> — one entity's translations: read every language, set or clear one.</item>
+///   <item><see cref="For(string, object)"/> / <see cref="ForMany(string, IReadOnlyCollection{object})"/> —
+///   the same for a subject addressed by name and id, whose type the application does not own.</item>
 ///   <item><see cref="LocalizeAsync(IEnumerable{object}, CancellationToken)"/> — fill translated properties
 ///   yourself, for providers without a change tracker (Dapper, MongoDB).</item>
 /// </list>
@@ -73,6 +75,33 @@ public interface IMultiLingualManager
     /// </summary>
     /// <exception cref="ArgumentException"><typeparamref name="T"/> has no <c>[MultiLingual]</c> properties.</exception>
     ITranslationAccessor<T> For<T>(T entity) where T : class;
+
+    /// <summary>
+    /// The translations of a subject addressed by name and id rather than by instance — per-language
+    /// text about something whose type the application does not own (a <c>MediaFile</c> from another
+    /// library, a row read with raw SQL). No property names are validated: there is no type to
+    /// validate them against.
+    /// <code>
+    /// await multiLingual.For("MediaFile", file.Id)
+    ///     .Set("en", "AltText", "A red chair")
+    ///     .SaveAsync();
+    /// </code>
+    /// See <see cref="ITranslationSubject"/> for what a subject does NOT share with a
+    /// <c>[MultiLingual]</c> entity — chiefly that it has no columns of its own.
+    /// </summary>
+    /// <param name="entityName">The name the rows are filed under, at most <c>MaxEntityNameLength</c> characters.</param>
+    /// <param name="entityId">The subject's key — int, long, Guid or string — formatted by <see cref="Metadata.EntityKey.ToKeyString"/>.</param>
+    /// <exception cref="ArgumentException">The name is blank or too long, or the id is unset (<c>0</c>, <c>Guid.Empty</c>, <c>""</c>).</exception>
+    ITranslationSubject For(string entityName, object entityId);
+
+    /// <summary>
+    /// <see cref="For(string, object)"/> for many ids, read in ONE store round trip — what a
+    /// listing page needs, and the reason not to call <see cref="For(string, object)"/> in a loop.
+    /// </summary>
+    /// <param name="entityName">The name the rows are filed under.</param>
+    /// <param name="entityIds">The subjects' keys. Duplicates and unset ids are ignored.</param>
+    /// <exception cref="ArgumentException">The name is blank or too long.</exception>
+    ITranslationSubjects ForMany(string entityName, IReadOnlyCollection<object> entityIds);
 
     /// <summary>
     /// Fills the translatable properties of <paramref name="entities"/> in the current language,

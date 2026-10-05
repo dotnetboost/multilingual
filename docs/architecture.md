@@ -28,6 +28,13 @@ backend inherits every rule for free.
 `MultiLingualMetadata` works out once per type which properties are translatable and under what
 entity name their rows are filed. `ILanguageCatalog` is the singleton cache of the language list.
 
+The fallback rule — current language, then the default language — lives in exactly one method,
+`TranslationManager.Plan`. The EF Core interceptors, the untracked hydration path and the subject
+reads (`For(entityName, entityId)`) all plan their reads through it, so none of them can resolve
+the same rows differently from the others. A subject passes `columnBacked: false`, which is the one
+difference: it has no table of its own, so a configured base language is an ordinary stored
+language for it rather than the unfetched end of the chain.
+
 The EF Core provider adds four interceptors on top, which is what makes reads and writes invisible
 there; [translated queries](querying.md#how-it-works) explains how each one contributes. Providers
 without a change tracker have no equivalent, so their users drive the same engine explicitly
@@ -41,7 +48,7 @@ through `IMultiLingualManager`.
 | `…MultiLingual.EntityFrameworkCore` | Core, EF Core | Mapping, four interceptors, translated queries, orphan purge |
 | `…MultiLingual.Dapper` | Core, Dapper | The EF Core provider's own schema, optional schema creation, transaction-scoped writes |
 | `…MultiLingual.MongoDb` | Core, the driver | Two collections, class-map unmapping, session-scoped writes |
-| `…MultiLingual.API` | Core, ASP.NET Core | `Accept-Language` middleware, language endpoints, problem details, OpenAPI (`net10.0`) |
+| `…MultiLingual.API` | Core, ASP.NET Core | `Accept-Language` middleware, language and translation endpoints, problem details, OpenAPI (`net10.0`) |
 | `…MultiLingual.Localization` | Core | `IStringLocalizer` over JSON files |
 
 All six target `net8.0` and `net10.0`. On `net8.0` they need only the 8.0 line of

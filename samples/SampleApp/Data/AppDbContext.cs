@@ -6,11 +6,12 @@ using SampleApp.Domain;
 
 namespace SampleApp.Data;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IMultiLingualDbContext
+// Nothing to implement: ApplyMultiLingual() below is the whole contract. The provider reads the
+// translations and languages tables through Set<T>(), so this context declares a DbSet for each
+// of its OWN entities and, below, for Languages only because DbInitializer queries it directly.
+public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<Language> Languages => Set<Language>();
-
-    public DbSet<Translation> Translations => Set<Translation>();
 
     public DbSet<Product> Products => Set<Product>();
 

@@ -45,8 +45,9 @@ public class EdgeNews : EdgeArticle
     [MultiLingual] public string? Summary { get; set; }
 }
 
-public abstract class EdgeDbContextBase(DbContextOptions options) : DbContext(options), IMultiLingualDbContext
+public abstract class EdgeDbContextBase(DbContextOptions options) : DbContext(options)
 {
+    // Not required by the provider; declared because these tests query the rows directly.
     public DbSet<Translation> Translations => Set<Translation>();
     public DbSet<Language> Languages => Set<Language>();
     public DbSet<EdgeProduct> Products => Set<EdgeProduct>();

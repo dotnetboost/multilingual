@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Closes the gaps a side-by-side consumer found: an application composing this library with
+`DotNetBoost.Media` had to reimplement the fallback rule and the whole translation CRUD in its own
+code. Both now ship here.
+
+### Added
+- **`IMultiLingualManager.For(entityName, entityId)`** and **`ForMany(entityName, entityIds)`** —
+  translations for a *subject* addressed by name and id rather than by instance, for per-language
+  text about something whose CLR type the application does not own (another library's `MediaFile`,
+  a row read with raw SQL). `ITranslationSubject` reads with the same
+  current-language-then-default-language fallback the EF Core interceptors apply, **from the same
+  code**, so the two can no longer answer the same rows differently. `ForMany(...).GetAsync()` is
+  one store read for the whole page, not one per id. No property names are validated — there is no
+  type to validate them against — and the id may be an `int`, `long`, `Guid` or `string`, formatted
+  by the library, so `For("X", 42)` and `For("X", "42")` reach the same rows.
+- **`app.MapTranslationEndpoints()`** (API) — the translation CRUD every consumer was hand-writing:
+  `GET`, `GET …/resolved`, `PUT` (every language in one batch, one store write), `POST …/resolve`
+  (many ids, one query) and `DELETE`. Built on the subject API above, so it is thin.
+- **`.ExposeOverHttp(e => e.Allow("MediaFile").Allow<Product>())`** — the opt-in those endpoints
+  require. An open `{entityName}` route would let any caller write translation rows for any entity
+  in the system, so nothing is served until it is listed; an unlisted name answers `404`, not `403`,
+  which would confirm which names exist. With nothing exposed, `MapTranslationEndpoints()` maps
+  nothing and logs a warning at startup. Authorization stays the application's: compose it on the
+  returned route group, as with `MapLanguageEndpoints()`.
+- **`EntityKey.AddressingVersion`** — the version of *DotNetBoost Entity Addressing*, now written
+  out as a spec in the README: how an entity name is resolved, how a key is formatted, and the two
+  length limits. Every DotNetBoost library sharing subject addressing publishes the same constant,
+  so a consumer joining rows across two of them asserts one equality instead of writing its own
+  theory table, and a deliberate format change fails loudly everywhere rather than quietly
+  stranding stored rows.
+- `DotNetBoost.MultiLingual.TestSupport` carries the conformance suite itself:
+  `EntityAddressing.KeyCases` as a `[MemberData]` source, `AssertKey`, `AssertSpecIsIntact` and
+  `AssertAgreesWith(...)`, which compares another library's version and both limits and names every
+  difference. Framework-agnostic — it throws rather than asserting — so it also works as a startup
+  check.
+
+### Changed
+- `UseEntityFrameworkCore<TContext>()` and `PurgeOrphanedTranslations[Async]<TContext>()` no longer
+  constrain `TContext` to `IMultiLingualDbContext`: any `DbContext` that calls
+  `ApplyMultiLingual()` in `OnModelCreating` works. The provider always read the two tables through
+  `context.Set<T>()`, never through the interface's properties, so the constraint only made contexts
+  declare members nothing called. No behaviour change.
+
+### Deprecated
+- **`IMultiLingualDbContext`** is obsolete and read by nothing. Stop implementing it; the
+  `DbSet<Translation>` and `DbSet<Language>` properties it required can go too, unless your own code
+  queries those rows — they map to the same tables either way. It is kept for one release so an
+  existing context still compiles.
+
 ## [1.0.0-preview.1] - 2026-09-25
 
 First public release: translatable content for any entity, driven by a `[MultiLingual]` attribute,
@@ -191,4 +241,5 @@ application keeps the versions its runtime ships.
 Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
 `docs/limitations.md` lists them all, with the reasons.
 
+[Unreleased]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.1...HEAD
 [1.0.0-preview.1]: https://github.com/dotnetboost/multilingual/releases/tag/v1.0.0-preview.1

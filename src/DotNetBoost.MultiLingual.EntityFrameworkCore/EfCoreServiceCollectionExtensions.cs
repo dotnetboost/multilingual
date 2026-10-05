@@ -13,9 +13,14 @@ namespace Microsoft.Extensions.DependencyInjection
         /// Configures Entity Framework Core as the provider. <typeparamref name="TContext"/> holds
         /// the translations and languages; attach the interceptors to every context that saves
         /// <c>[MultiLingual]</c> entities with <see cref="MultiLingualDbContextOptionsExtensions.UseMultiLingual"/>.
+        /// <para>
+        /// The context needs nothing but <c>ApplyMultiLingual()</c> in <c>OnModelCreating</c>: the
+        /// provider reaches the two tables through <c>context.Set&lt;T&gt;()</c>, so declaring
+        /// <c>DbSet&lt;Translation&gt;</c> and <c>DbSet&lt;Language&gt;</c> properties is optional.
+        /// </para>
         /// </summary>
         public static MultiLingualBuilder UseEntityFrameworkCore<TContext>(this MultiLingualBuilder builder)
-            where TContext : DbContext, IMultiLingualDbContext
+            where TContext : DbContext
         {
             ArgumentNullException.ThrowIfNull(builder);
             MultiLingualBuilderGuard.EnsureProviderNotConfigured(builder, "EntityFrameworkCore");

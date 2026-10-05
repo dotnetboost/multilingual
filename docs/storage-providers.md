@@ -23,21 +23,18 @@ tracker](#providers-without-a-change-tracker).
 dotnet add package DotNetBoost.MultiLingual.EntityFrameworkCore --prerelease
 ```
 
-Add the two library tables to your `DbContext` and call `ApplyMultiLingual()` **last** in
-`OnModelCreating`, after `ApplyConfigurationsFromAssembly`, so entity types discovered through
-configurations and navigations are covered too:
+Call `ApplyMultiLingual()` **last** in `OnModelCreating`, after
+`ApplyConfigurationsFromAssembly`, so entity types discovered through configurations and
+navigations are covered too. That one call is the whole contract — it adds the two library tables,
+and the provider reaches them through `Set<T>()`:
 
 ```csharp
-using DotNetBoost.MultiLingual.Core.Models;
 using DotNetBoost.MultiLingual.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options)
-    : DbContext(options), IMultiLingualDbContext
+public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
-    public DbSet<Translation> Translations => Set<Translation>();
-    public DbSet<Language>    Languages    => Set<Language>();
-    public DbSet<Product>     Products     => Set<Product>();
+    public DbSet<Product> Products => Set<Product>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +43,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     }
 }
 ```
+
+Declare `DbSet<Translation>` or `DbSet<Language>` properties only if your own code queries those
+rows — they map to the same tables either way. Earlier versions required an `IMultiLingualDbContext`
+interface for them; it is now obsolete, and nothing reads it.
 
 ```csharp
 builder.Services.AddMultiLingual()

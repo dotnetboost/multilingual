@@ -11,6 +11,33 @@ namespace DotNetBoost.MultiLingual.Core.Metadata;
 public static class EntityKey
 {
     /// <summary>
+    /// The version of <b>DotNetBoost Entity Addressing</b> — the spec in the README under
+    /// "Entity addressing" — that this implementation conforms to: how an entity name is
+    /// resolved, how a key is formatted, and the two length limits.
+    ///
+    /// <para>
+    /// Every DotNetBoost library that files rows against the same (entity name, entity id) pair
+    /// publishes this constant with the same value, and <c>DotNetBoost.Media</c> does. An
+    /// application joining rows across two of them can assert that they agree:
+    /// <code>
+    /// Assert.Equal(MediaKey.AddressingVersion, EntityKey.AddressingVersion);
+    /// </code>
+    /// which is a one-line replacement for hand-written tests that compare key formats, and makes
+    /// a deliberate format change fail loudly in every consumer rather than quietly stranding
+    /// stored rows.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Bump it for ANY change</b> to <see cref="ToKeyString"/>, to
+    /// <see cref="MultiLingualMetadata.EntityNameFor"/>, to <see cref="MaxLength"/> or to
+    /// <see cref="MultiLingualMetadata.MaxEntityNameLength"/>. Nothing else may change it.
+    /// <c>DotNetBoost.MultiLingual.TestSupport</c>'s <c>EntityAddressing</c> runs the conformance
+    /// suite for the version named here.
+    /// </para>
+    /// </summary>
+    public const string AddressingVersion = "1.0";
+
+    /// <summary>
     /// The longest key <c>Translation.EntityId</c> can hold. Every numeric key and a Guid (36)
     /// fit; a string key longer than this cannot have translations, and writing one is refused.
     /// </summary>
