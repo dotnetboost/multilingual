@@ -20,7 +20,9 @@ public static class EntityKey
     /// publishes this constant with the same value, and <c>DotNetBoost.Media</c> does. An
     /// application joining rows across two of them can assert that they agree:
     /// <code>
-    /// Assert.Equal(MediaKey.AddressingVersion, EntityKey.AddressingVersion);
+    /// Assert.Equal(
+    ///     DotNetBoost.Media.Core.Metadata.EntityKey.AddressingVersion,
+    ///     DotNetBoost.MultiLingual.Core.Metadata.EntityKey.AddressingVersion);
     /// </code>
     /// which is a one-line replacement for hand-written tests that compare key formats, and makes
     /// a deliberate format change fail loudly in every consumer rather than quietly stranding

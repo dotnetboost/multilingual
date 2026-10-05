@@ -16,6 +16,9 @@ namespace DotNetBoost.MultiLingual.TestSupport;
 /// </para>
 ///
 /// <code>
+/// using MediaKey   = DotNetBoost.Media.Core.Metadata.EntityKey;
+/// using MediaNames = DotNetBoost.Media.Core.Metadata.MediaEntityNames;
+///
 /// [Theory]
 /// [MemberData(nameof(EntityAddressing.KeyCases), MemberType = typeof(EntityAddressing))]
 /// public void KeysAreFormattedToTheSpec(object key, string expected) =&gt;
@@ -23,7 +26,11 @@ namespace DotNetBoost.MultiLingual.TestSupport;
 ///
 /// [Fact]
 /// public void MediaAndMultiLingualAddressSubjectsTheSameWay() =&gt;
-///     EntityAddressing.AssertAgreesWith("DotNetBoost.Media", MediaKey.AddressingVersion, MediaKey.MaxLength, MediaMetadata.MaxEntityNameLength);
+///     EntityAddressing.AssertAgreesWith(
+///         "DotNetBoost.Media",
+///         MediaKey.AddressingVersion,
+///         MediaKey.MaxLength,
+///         MediaNames.MaxLength);
 /// </code>
 ///
 /// <para>

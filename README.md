@@ -307,7 +307,9 @@ using DotNetBoost.MultiLingual.Core.Metadata;
 
 [Fact]
 public void MediaAndMultiLingualAddressSubjectsTheSameWay() =>
-    Assert.Equal(MediaKey.AddressingVersion, EntityKey.AddressingVersion);
+    Assert.Equal(
+        DotNetBoost.Media.Core.Metadata.EntityKey.AddressingVersion,
+        EntityKey.AddressingVersion);
 ```
 
 `DotNetBoost.MultiLingual.TestSupport` carries the conformance suite itself —
