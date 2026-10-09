@@ -46,11 +46,9 @@ code. Both now ship here.
   so a consumer joining rows across two of them asserts one equality instead of writing its own
   theory table, and a deliberate format change fails loudly everywhere rather than quietly
   stranding stored rows.
-- `DotNetBoost.MultiLingual.TestSupport` carries the conformance suite itself:
-  `EntityAddressing.KeyCases` as a `[MemberData]` source, `AssertKey`, `AssertSpecIsIntact` and
-  `AssertAgreesWith(...)`, which compares another library's version and both limits and names every
-  difference. Framework-agnostic — it throws rather than asserting — so it also works as a startup
-  check.
+- The conformance suite for that spec now runs against this library as part of its own test suite,
+  so the version it publishes is one it is held to rather than one it merely claims. Comparing the
+  two constants is all a consumer needs; there is nothing further to install.
 
 ### Changed
 - `UseEntityFrameworkCore<TContext>()` and `PurgeOrphanedTranslations[Async]<TContext>()` no longer

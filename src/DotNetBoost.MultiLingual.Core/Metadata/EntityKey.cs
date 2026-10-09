@@ -38,8 +38,8 @@ public static class EntityKey
     /// <see cref="MultiLingualMetadata.MaxEntityNameLength"/>). Nothing else may change it —
     /// and a rule left off this list is how two libraries drift while both still claim the same
     /// version.
-    /// <c>DotNetBoost.MultiLingual.TestSupport</c>'s <c>EntityAddressing</c> runs the conformance
-    /// suite for the version named here.
+    /// This library's own suite runs the full rule set for the version named here, so the version
+    /// is one it is held to rather than one it merely claims.
     /// </para>
     /// </summary>
     public const string AddressingVersion = "1.0";
