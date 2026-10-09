@@ -313,13 +313,14 @@ public void MediaAndMultiLingualAddressSubjectsTheSameWay() =>
         EntityKey.AddressingVersion);
 ```
 
-`DotNetBoost.MultiLingual.TestSupport` carries the conformance suite itself —
-`EntityAddressing.KeyCases` as a `[MemberData]` source, plus `AssertAgreesWith(...)`, which compares
-another library's version *and* both length limits and names every difference it finds.
-
 `EntityKey.AddressingVersion` is bumped for **any** change to name resolution, key formatting or
 either limit — so such a change fails loudly in every consumer instead of quietly stranding rows
-that were written under the old rules.
+that were written under the old rules. That one equality is the whole of the dependency: there is
+nothing further to install and nothing to keep in step by hand.
+
+`EntityKey.MaxLength` and `MultiLingualMetadata.MaxEntityNameLength` are public as well, for a
+consumer that wants to compare the limits it stores keys and names under rather than trust the
+version alone.
 
 ---
 
