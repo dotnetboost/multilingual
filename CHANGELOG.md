@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.0.0-preview.2] - 2026-10-10
+
 Closes the gaps a side-by-side consumer found: an application composing this library with
 `DotNetBoost.Media` had to reimplement the fallback rule and the whole translation CRUD in its own
 code. Both now ship here.
@@ -265,5 +269,6 @@ application keeps the versions its runtime ships.
 Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
 `docs/limitations.md` lists them all, with the reasons.
 
-[Unreleased]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.1...HEAD
+[Unreleased]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.2...HEAD
+[1.0.0-preview.2]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.1...v1.0.0-preview.2
 [1.0.0-preview.1]: https://github.com/dotnetboost/multilingual/releases/tag/v1.0.0-preview.1
