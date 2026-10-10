@@ -234,6 +234,13 @@ public static class EntityAddressing
     /// fallback used where there is no model to consult.
     /// </param>
     /// <param name="libraryName">The other library, named in the failure message.</param>
+    /// <remarks>
+    /// A composite key counts as refused when <paramref name="discoverKey"/> throws
+    /// <see cref="NotSupportedException"/>, <see cref="InvalidOperationException"/> or
+    /// <see cref="ArgumentException"/>. The spec does not fix the type — it fixes that one value
+    /// cannot be chosen — but any other exception is a bug in the accessor rather than a refusal,
+    /// and is left to propagate so it is seen as one.
+    /// </remarks>
     /// <exception cref="InvalidOperationException">It discovers a key some other way.</exception>
     public static void AssertKeyDiscovery(Func<object, string?> discoverKey, string libraryName)
     {
@@ -263,8 +270,12 @@ public static class EntityAddressing
         {
             discoverKey(new CompositeKey { Left = 1, Right = 2 });
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or ArgumentException)
         {
+            // The three exceptions a library refuses with — this one throws NotSupportedException.
+            // Anything else propagates instead of counting as a refusal: a NullReferenceException
+            // from a bug inside discoverKey is not a deliberate "no", and catching Exception would
+            // have passed such a library as conforming.
             return;
         }
 
