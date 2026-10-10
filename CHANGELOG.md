@@ -41,8 +41,8 @@ code. Both now ship here.
   actually drift. Both throw `InvalidOperationException` naming the difference, like the rest of
   the suite, so they stay usable from any test framework or a startup check.
 - **`EntityKey.AddressingVersion`** — the version of *DotNetBoost Entity Addressing*, now written
-  out as a spec in the README: how an entity name is resolved, how a key is formatted, and the two
-  length limits. Every DotNetBoost library sharing subject addressing publishes the same constant,
+  out as a spec in the README: how an entity name is resolved, how a key is discovered and
+  formatted, when a key counts as unset, and the two length limits. Every DotNetBoost library sharing subject addressing publishes the same constant,
   so a consumer joining rows across two of them asserts one equality instead of writing its own
   theory table, and a deliberate format change fails loudly everywhere rather than quietly
   stranding stored rows.

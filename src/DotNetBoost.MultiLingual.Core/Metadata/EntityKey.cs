@@ -13,7 +13,8 @@ public static class EntityKey
     /// <summary>
     /// The version of <b>DotNetBoost Entity Addressing</b> — the spec in the README under
     /// "Entity addressing" — that this implementation conforms to: how an entity name is
-    /// resolved, how a key is formatted, and the two length limits.
+    /// resolved, how a key is discovered and formatted, when a key counts as unset, and the two
+    /// length limits.
     ///
     /// <para>
     /// Every DotNetBoost library that files rows against the same (entity name, entity id) pair

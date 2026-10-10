@@ -34,8 +34,9 @@ filters on the *translated* text, in the database.
 
 Works with **.NET 8 and .NET 10**, on **SQL Server, PostgreSQL, SQLite or MongoDB**.
 
-> **Status:** preview. The packages are on NuGet as `1.0.0-preview.1`, so installing them needs
-> `--prerelease` — every command below has it. The API may still change before 1.0.0.
+> **Status:** preview. The packages are on NuGet as `1.0.0-preview.*` prereleases, so installing
+> them needs `--prerelease` — every command below has it. The badge above reports the current
+> version. The API may still change before 1.0.0.
 
 ---
 
@@ -216,6 +217,40 @@ public class ProductService(AppDbContext db, IMultiLingualManager multiLingual)
 `MultiLingualExceptionHandler` turns it into problem details, so a controller needs no checks of its
 own. Full tour: [reading and writing](https://github.com/dotnetboost/multilingual/blob/main/docs/reading-and-writing.md).
 
+### Serving subject translations over HTTP
+
+Those last two calls have a REST surface, so an editor UI needs no controller of yours. It is
+opt-in per entity, because the routes take the entity name from the URL — an open route would let
+any caller write translation rows for any entity in the system:
+
+```csharp
+builder.Services.AddMultiLingual()
+    .UseEntityFrameworkCore<AppDbContext>()
+    .ExposeOverHttp(e => e
+        .Allow("MediaFile")        // by name, for a type your application does not own
+        .Allow<Product>())         // by type; the name is resolved through [MultiLingualEntity]
+    .Build();
+
+app.MapTranslationEndpoints();   // adds GET/PUT/POST/DELETE /api/translations
+```
+
+Five routes, under `/api/translations` unless you pass another prefix:
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/{entityName}/{entityId}` | Every stored language |
+| `GET` | `/{entityName}/{entityId}/resolved` | The request's language, with the default-language fallback |
+| `PUT` | `/{entityName}/{entityId}` | Upsert every supplied language, as one batch |
+| `POST` | `/{entityName}/resolve` | Many ids at once, in the request's language — one query |
+| `DELETE` | `/{entityName}/{entityId}` | Every language of that subject |
+
+> ⚠️ **These routes write content, and the exposure list is not an authorization check** — it
+> cannot tell one caller from another. Protect them before you deploy:
+> `app.MapTranslationEndpoints().RequireAuthorization("content-editor")`. An unlisted entity name
+> answers `404` on every verb, and with nothing exposed at all the call maps nothing and logs a
+> warning at startup. See
+> [Securing them](https://github.com/dotnetboost/multilingual/blob/main/docs/rest-api.md#securing-them).
+
 ---
 
 ## Using your existing database
@@ -313,10 +348,12 @@ public void MediaAndMultiLingualAddressSubjectsTheSameWay() =>
         EntityKey.AddressingVersion);
 ```
 
-`EntityKey.AddressingVersion` is bumped for **any** change to name resolution, key formatting or
-either limit — so such a change fails loudly in every consumer instead of quietly stranding rows
-that were written under the old rules. That one equality is the whole of the dependency: there is
-nothing further to install and nothing to keep in step by hand.
+`EntityKey.AddressingVersion` is bumped for **any** change to the rules above — entity-name
+resolution, key discovery, key formatting, unset-key detection, or either length limit — so such a
+change fails loudly in every consumer instead of quietly stranding rows that were written under the
+old rules. A rule left off that list is how two libraries drift while both still claim the same
+version. That one equality is the whole of the dependency: there is nothing further to install and
+nothing to keep in step by hand.
 
 `EntityKey.MaxLength` and `MultiLingualMetadata.MaxEntityNameLength` are public as well, for a
 consumer that wants to compare the limits it stores keys and names under rather than trust the
@@ -338,6 +375,35 @@ dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost
 
 The API is then on `http://localhost:5160`, with its reference at `/scalar`. See
 [Running everything with .NET Aspire](https://github.com/dotnetboost/multilingual/blob/main/docs/aspire.md).
+
+---
+
+## Upgrading from `1.0.0-preview.1`
+
+One deprecation, and nothing else to change:
+
+**`IMultiLingualDbContext` is obsolete.** An EF Core context no longer implements anything — the
+provider always read the two tables through `context.Set<T>()`, never through the interface's
+properties, so the interface only made contexts declare members nothing called. Drop it and the two
+`DbSet` properties it required; `ApplyMultiLingual()` in `OnModelCreating` is now the whole
+contract:
+
+```diff
+-public class AppDbContext(DbContextOptions<AppDbContext> options)
+-    : DbContext(options), IMultiLingualDbContext
++public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+ {
+-    public DbSet<Translation> Translations => Set<Translation>();
+-    public DbSet<Language>    Languages    => Set<Language>();
+     public DbSet<Product>     Products     => Set<Product>();
+```
+
+Keep the properties only if your own code queries those rows — they map to the same tables either
+way. The interface still compiles for one release, so this is a warning, not a break; it is a build
+error only in a project that treats warnings as errors. Nothing about the stored schema changes.
+
+The full list of changes is in
+[CHANGELOG.md](https://github.com/dotnetboost/multilingual/blob/main/CHANGELOG.md).
 
 ---
 
