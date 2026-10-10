@@ -41,8 +41,9 @@ public class ShopDocument
     [MultiLingual] public string? Title { get; set; }
 }
 
-public sealed class ShopDbContext(DbContextOptions<ShopDbContext> options) : DbContext(options), IMultiLingualDbContext
+public sealed class ShopDbContext(DbContextOptions<ShopDbContext> options) : DbContext(options)
 {
+    // Not required by the provider; declared because these tests query the rows directly.
     public DbSet<Translation> Translations => Set<Translation>();
     public DbSet<Language> Languages => Set<Language>();
     public DbSet<ShopProduct> Products => Set<ShopProduct>();

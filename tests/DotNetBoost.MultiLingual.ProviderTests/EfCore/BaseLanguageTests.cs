@@ -16,8 +16,9 @@ namespace DotNetBoost.MultiLingual.ProviderTests.EfCore;
 /// differently configured contexts of one type would share the first model built.
 /// </summary>
 public sealed class BaseShopDbContext(DbContextOptions<BaseShopDbContext> options)
-    : DbContext(options), IMultiLingualDbContext
+    : DbContext(options)
 {
+    // Not required by the provider; declared because these tests query the rows directly.
     public DbSet<Translation> Translations => Set<Translation>();
     public DbSet<Language> Languages => Set<Language>();
     public DbSet<ShopProduct> Products => Set<ShopProduct>();
@@ -519,10 +520,8 @@ public sealed class BaseLanguageTests
 /// the misconfiguration that would silently write the authored language into the base column.
 /// </summary>
 public sealed class MismatchedDbContext(DbContextOptions<MismatchedDbContext> options)
-    : DbContext(options), IMultiLingualDbContext
+    : DbContext(options)
 {
-    public DbSet<Translation> Translations => Set<Translation>();
-    public DbSet<Language> Languages => Set<Language>();
     public DbSet<ShopProduct> Products => Set<ShopProduct>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

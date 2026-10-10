@@ -14,10 +14,11 @@ var app = builder.Build();
 app.UseExceptionHandler();
 app.UseMultiLingual();                          // Accept-Language → the request's language
 app.MapLanguageEndpoints().RequireAuthorization("admin");
+app.MapTranslationEndpoints().RequireAuthorization("content-editor");
 ```
 
-Three separate pieces, each usable on its own: the middleware, the endpoints, and the problem
-details mapping.
+Four separate pieces, each usable on its own: the middleware, the language endpoints, the
+translation endpoints, and the problem details mapping.
 
 ## `Accept-Language`
 
@@ -95,6 +96,92 @@ app.MapLanguageEndpoints().RequireAuthorization("admin");
 
 The [`samples/`](../samples) apps map them without `[Authorize]` on purpose: they are showcases and
 run without an identity provider. Do not copy that part into a real application.
+
+## The translation endpoints
+
+`app.MapTranslationEndpoints()` maps reads and writes of translation rows under `/api/translations`
+(pass another prefix if you like) and returns the route group. They are the CRUD every consumer
+would otherwise hand-write, built on `IMultiLingualManager.For(entityName, entityId)`:
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/translations/{entityName}/{entityId}` | Every stored language |
+| `GET` | `/api/translations/{entityName}/{entityId}/resolved` | The request's language, with the default-language fallback applied |
+| `PUT` | `/api/translations/{entityName}/{entityId}` | Upsert every supplied language, as one batch |
+| `POST` | `/api/translations/{entityName}/resolve` | Many ids at once, in the request's language — one query |
+| `DELETE` | `/api/translations/{entityName}/{entityId}` | Every language of that subject |
+
+### Nothing is exposed until you say so
+
+An open `{entityName}` route would be a write-anything-anywhere surface: any caller could write
+translation rows for any entity in the system, including ones you never meant to expose. So the
+names are listed at registration, and **nothing is served until they are**:
+
+```csharp
+builder.Services
+    .AddMultiLingual()
+    .UseEntityFrameworkCore<AppDbContext>()
+    .ExposeOverHttp(e => e
+        .Allow("MediaFile")        // by name, for a type your application does not own
+        .Allow<Product>()          // by type; the name is resolved through [MultiLingualEntity]
+        .Allow<Category>())
+    .Build();
+```
+
+An unlisted name answers `404` on every verb — not `403`, which would confirm which entity names
+exist. With nothing allowed at all, `MapTranslationEndpoints()` maps nothing and logs a warning at
+startup, rather than serving a surface on which every request 404s. Calling `ExposeOverHttp` more
+than once adds to the same list.
+
+### Writing
+
+`PUT` takes every language in one body and writes them in a single store operation, so a three-
+language edit is one upsert rather than three:
+
+```bash
+curl -X PUT http://localhost:5160/api/translations/MediaFile/8b1f…/ \
+  -H "Content-Type: application/json" \
+  -d '{"translations":{
+        "en":{"AltText":"A red chair","Caption":"Our bestseller"},
+        "ar":{"AltText":"كرسي أحمر"}
+      }}'
+```
+
+A `null` value removes that stored row; a language or property the body omits is left alone. An
+unknown language code is a `404` problem (`LanguageNotFound`), reported at the request, not after
+half the batch has been written.
+
+### Reading a page at once
+
+`POST .../resolve` is the one to use for a listing: it resolves every id in one query, with the
+same current-language-then-default-language fallback the EF Core interceptors apply.
+
+```bash
+curl -X POST http://localhost:5160/api/translations/MediaFile/resolve \
+  -H "Content-Type: application/json" -H "Accept-Language: ar" \
+  -d '{"entityIds":["8b1f…","9c2a…"]}'
+```
+
+Ids with nothing stored are simply absent from the response.
+
+### Securing them
+
+As with the language endpoints, they are **anonymous** until you say otherwise — and these *write
+content*:
+
+```csharp
+app.MapTranslationEndpoints().RequireAuthorization("content-editor");
+```
+
+> The exposure list decides which entities are reachable. It is not an authorization check: it
+> cannot tell one caller from another. Compose a policy on the group as well.
+
+Subjects addressed this way have no columns of their own, so in
+[base-language mode](base-language.md) every language they carry — the base language included — is
+a translation row. Do not address one of your own `[MultiLingual]` entities this way in that mode:
+its base-language values belong in its own columns, and a row written here for that language would
+be invisible to every query. Expose such entities by type (`Allow<Product>()`) and write their base
+language through the entity itself.
 
 ## Problem details
 

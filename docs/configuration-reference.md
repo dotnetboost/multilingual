@@ -7,7 +7,7 @@ configuration and every `[MultiLingual]` type in the loaded assemblies.
 
 | Method | Package | Description |
 |---|---|---|
-| `.UseEntityFrameworkCore<TContext>()` | EntityFrameworkCore | Backing store. `TContext` implements `IMultiLingualDbContext` |
+| `.UseEntityFrameworkCore<TContext>()` | EntityFrameworkCore | Backing store. `TContext` is any `DbContext` that calls `ApplyMultiLingual()` in `OnModelCreating` |
 | `.UseDapper(connectionFactory, migrateSchema, configure)` | Dapper | Backing store; optionally creates the two tables at startup |
 | `.UseMongoDb(configure)` | MongoDb | Backing store, over the `IMongoDatabase` your application registers |
 | `.UseMongoDb(connectionString, databaseName, configure)` | MongoDb | Backing store, over a client the provider owns |
@@ -22,6 +22,7 @@ configuration and every `[MultiLingual]` type in the loaded assemblies.
 | `.UseLanguageChangeSignal(factory, checkInterval)` | Core | The same, from a factory |
 | `.UseEntityKeyAccessor<TAccessor>()` | Core | Replace how entity keys are read |
 | `.DisableStartupValidation()` | Core | Do not check the base language at startup |
+| `.ExposeOverHttp(configure)` | API | Names the entities whose translations `MapTranslationEndpoints()` serves. Nothing is served until they are listed |
 | `.AddJsonLocalization(configure)` | Localization | `IStringLocalizer<T>` over JSON message files |
 | `.Build()` | Core | Validate the configuration and the model, return `IServiceCollection` |
 
@@ -47,6 +48,7 @@ Set through `AddMultiLingual(o => …)` or the builder methods above. Registered
 | `app.UseMultiLingual()` | Resolve `Accept-Language` into the request's language |
 | `app.UseMultiLingual(o => …)` | The same, with `MultiLingualRequestOptions` |
 | `app.MapLanguageEndpoints(prefix)` | Language administration under `prefix` (default `/api/languages`). Returns the route group |
+| `app.MapTranslationEndpoints(prefix)` | Translation reads and writes under `prefix` (default `/api/translations`), for the names given to `.ExposeOverHttp(...)`. Returns the route group |
 | `services.AddExceptionHandler<MultiLingualExceptionHandler>()` | Library exceptions as problem details |
 | `AddOpenApi(o => o.AddAcceptLanguageParameter())` | Document `Accept-Language` on every operation (`net10.0`) |
 | `[LanguageAgnostic]` | Leave one operation or controller out of that |

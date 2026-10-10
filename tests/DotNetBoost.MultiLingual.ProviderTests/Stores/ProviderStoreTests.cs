@@ -7,12 +7,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DotNetBoost.MultiLingual.ProviderTests.Stores;
 
-/// <summary>A context holding nothing but the two MultiLingual tables.</summary>
-public sealed class StoreDbContext(DbContextOptions<StoreDbContext> options) : DbContext(options), IMultiLingualDbContext
+/// <summary>
+/// A context holding nothing but the two MultiLingual tables — and declaring neither of them as a
+/// <c>DbSet</c>, which is the point: the provider reaches them through <c>Set&lt;T&gt;()</c>, so
+/// <c>ApplyMultiLingual()</c> is the whole contract.
+/// </summary>
+public sealed class StoreDbContext(DbContextOptions<StoreDbContext> options) : DbContext(options)
 {
-    public DbSet<Translation> Translations => Set<Translation>();
-    public DbSet<Language> Languages => Set<Language>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.ApplyMultiLingual();
 }
 

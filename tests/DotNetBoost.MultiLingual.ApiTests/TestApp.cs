@@ -30,6 +30,8 @@ internal sealed class TestApp : IAsyncDisposable
 
     public InMemoryTranslationStore Translations { get; }
 
+    public IServiceProvider Services => _app.Services;
+
     private TestApp(WebApplication app, InMemoryTranslationStore translations)
     {
         _app         = app;
@@ -52,7 +54,10 @@ internal sealed class TestApp : IAsyncDisposable
         var languageStore = new InMemoryLanguageStore();
 
         var multiLingual = builder.Services.AddMultiLingual()
-            .UseCustomStores(_ => translations, _ => languageStore);
+            .UseCustomStores(_ => translations, _ => languageStore)
+            // "MediaFile" is the case the endpoints exist for: a subject whose CLR type this
+            // application does not own. Note is one of its own entities, exposed by type.
+            .ExposeOverHttp(e => e.Allow("MediaFile").Allow<Note>());
         configure?.Invoke(multiLingual);
         multiLingual.Build();
 
@@ -69,6 +74,7 @@ internal sealed class TestApp : IAsyncDisposable
 
         app.MapLanguageEndpoints();
         app.MapLanguageEndpoints("/admin/langs/");
+        app.MapTranslationEndpoints();
         app.MapGet("/probe", (ILanguageContext language) => new Probe(
             language.Current.Code, language.DefaultLanguage.Code, language.WasRequestedLanguageHonoured));
         app.MapGet("/agnostic", () => "ok").WithMetadata(new LanguageAgnosticAttribute());

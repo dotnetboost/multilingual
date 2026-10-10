@@ -50,7 +50,7 @@ public static class OrphanedTranslationExtensions
     /// </para>
     /// </summary>
     public static async Task<int> PurgeOrphanedTranslationsAsync<TContext>(this TContext context, CancellationToken ct = default)
-        where TContext : DbContext, IMultiLingualDbContext
+        where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -63,7 +63,7 @@ public static class OrphanedTranslationExtensions
 
     /// <summary>Synchronous <see cref="PurgeOrphanedTranslationsAsync{TContext}"/>.</summary>
     public static int PurgeOrphanedTranslations<TContext>(this TContext context)
-        where TContext : DbContext, IMultiLingualDbContext
+        where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(context);
         return OrphanQueries(context).Sum(orphans => orphans.ExecuteDelete());

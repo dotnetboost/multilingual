@@ -114,6 +114,43 @@ internal interface ITranslationManager
     Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(
         object entity, CancellationToken ct = default);
 
+    // ------------------------------------------------------------------ subjects (name + id, no instance)
+
+    /// <summary>
+    /// The stored values of the given subjects in the current language, falling back to the
+    /// default language — the read path's own rule, applied to rows rather than to properties.
+    /// entityId → (propertyName → value); ids with nothing stored are absent.
+    /// <para>
+    /// ONE store read for every id. A subject has no columns, so the base language (when there is
+    /// one) is an ordinary stored language here rather than the end of the chain.
+    /// </para>
+    /// </summary>
+    /// <exception cref="NoLanguageConfiguredException">No languages exist yet.</exception>
+    Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> ResolveSubjectsAsync(
+        string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every stored translation of one subject, as languageCode → (propertyName → value).
+    /// The <see cref="GetAllAsync(object, CancellationToken)"/> of a subject.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(
+        string entityName, string entityId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Writes a subject's values — languageCode → (propertyName → value) — in one store
+    /// operation. A <c>null</c> value removes the stored row. No property names are validated:
+    /// a subject has no type to validate them against.
+    /// </summary>
+    /// <exception cref="UnknownLanguageException">A language in the batch does not exist.</exception>
+    Task WriteSubjectAsync(
+        string entityName,
+        string entityId,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> valuesByLanguage,
+        CancellationToken ct = default);
+
+    /// <summary>Removes every translation filed under <paramref name="entityName"/> for the given ids.</summary>
+    Task<int> DeleteEntitiesAsync(string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default);
+
     // ------------------------------------------------------------------ write
 
     /// <summary>

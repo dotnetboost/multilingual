@@ -51,6 +51,8 @@ public sealed class ProductsController(
 | find or administer languages | `multiLingual.Languages.FindAsync("ar")`, `CreateAsync(…)`, `SetDefaultAsync(…)`, `IsBaseLanguage(…)`, … |
 | fill translated properties yourself (Dapper, MongoDB) | `await multiLingual.LocalizeAsync(products)` |
 | save / delete translations yourself (Dapper, MongoDB) | `await multiLingual.For(product).SaveAsync()` / `DeleteAsync()` |
+| translate something whose class you don't own | `multiLingual.For("MediaFile", id)` — see [subjects](#subjects-translating-something-you-dont-own-the-class-of) |
+| read text for a whole page of those, in one query | `await multiLingual.ForMany("MediaFile", ids).GetAsync()` |
 
 `Set` and `Clear` only **queue** the change; it is written by the next `SaveChanges` (or
 `For(…).SaveAsync()` without EF Core), in the same transaction as the entity. They check the
@@ -132,6 +134,56 @@ than from code:
 ```csharp
 multiLingual.For(product).Set("fr", request.Fields);   // IReadOnlyDictionary<string, string?>
 ```
+
+## Subjects: translating something you don't own the class of
+
+`For(entity)` needs a `[MultiLingual]` class. Sometimes there isn't one — you want alt text and
+captions for a `MediaFile` that belongs to another library, or for a row you read with raw SQL, or
+for a record that lives in another service. Address it by **entity name and id** instead:
+
+```csharp
+await multiLingual.For("MediaFile", file.Id)
+    .Set("en", "AltText", "A red chair")
+    .Set("ar", "AltText", "كرسي أحمر")
+    .SaveAsync();                                      // one store write, every language
+
+var text = await multiLingual.For("MediaFile", file.Id).GetAsync();
+var alt  = text["AltText"];                            // current language, then the default
+```
+
+| Call | Returns |
+|---|---|
+| `.GetAsync()` | `propertyName → value` in the current language, with the default-language fallback — **the same rule** the EF Core interceptors apply, from the same code |
+| `.GetAllAsync()` | `languageCode → (propertyName → value)`, everything stored |
+| `.Set(code, name, value)` / `.Set(code, values)` | Queues a value. `null` removes the stored row |
+| `.SaveAsync()` | Writes everything queued, as one batch |
+| `.DeleteAsync()` | Removes every language, returning the row count |
+
+For a listing page, resolve the whole page at once — `ForMany` is **one** query, where a loop over
+`For` would be one per id:
+
+```csharp
+var ids  = page.Select(f => (object)f.Id).ToList();
+var text = await multiLingual.ForMany("MediaFile", ids).GetAsync();   // entityId → (property → value)
+
+var alt = text.TryGetValue(file.Id.ToString("D"), out var values) ? values["AltText"] : null;
+```
+
+The id may be an `int`, `long`, `Guid` or `string`: the library formats it, so `For("X", 42)` and
+`For("X", "42")` reach the same rows. See [entity addressing](../README.md#entity-addressing) for
+the rules, which are a versioned spec.
+
+Two differences from `For(entity)`:
+
+- **No property is validated.** There is no type to validate against, so any property name is
+  accepted. That is the point of the API, not an oversight.
+- **A subject has no columns of its own**, so in [base-language mode](base-language.md) every
+  language it carries — the base language included — is a translation row. Do not address one of
+  your own `[MultiLingual]` entities this way in that mode: its base-language values belong in its
+  own columns, and a row written here for that language would be invisible to every query.
+
+To let clients do this over HTTP without writing the CRUD yourself, see
+[the translation endpoints](rest-api.md#the-translation-endpoints).
 
 ## Outside a request
 

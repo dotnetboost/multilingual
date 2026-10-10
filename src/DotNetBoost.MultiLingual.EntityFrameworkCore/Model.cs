@@ -9,11 +9,19 @@ using Microsoft.Extensions.DependencyInjection;
 namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 
 /// <summary>
-/// Implement this on your <see cref="DbContext"/> to let the EF Core provider use it, and call
+/// No longer used by anything. The provider reads the two tables through
+/// <c>context.Set&lt;Translation&gt;()</c> and <c>context.Set&lt;Language&gt;()</c>, never through
+/// these properties, so a context satisfied the contract by declaring members nothing called.
+/// <para>
+/// A context now needs only
 /// <see cref="MultiLingualModelBuilderExtensions.ApplyMultiLingual(ModelBuilder, DbContext, Action{MultiLingualModelOptions})"/>
-/// at the end of
-/// <c>OnModelCreating</c>.
+/// at the end of <c>OnModelCreating</c>. Stop implementing this interface and delete the two
+/// <c>DbSet</c> properties — or keep them, if your own code queries them: they map to the same
+/// tables either way. It is kept for one release so that an existing context still compiles.
+/// </para>
 /// </summary>
+[Obsolete("Not used by the provider: a DbContext needs only ApplyMultiLingual() in OnModelCreating. " +
+          "Stop implementing this interface; it will be removed in a future release.")]
 public interface IMultiLingualDbContext
 {
     /// <summary>The translation rows backing every <c>[MultiLingual]</c> entity.</summary>

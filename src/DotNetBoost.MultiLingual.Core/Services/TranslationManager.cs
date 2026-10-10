@@ -89,15 +89,120 @@ internal sealed partial class TranslationManager(
         if (entityId is null)
             return NoValues;
 
-        var rows = await store.GetAllAsync(MultiLingualMetadata.EntityNameFor(entity.GetType()), entityId, ct);
-
-        return rows
-            .GroupBy(r => r.LanguageCode, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                g => g.Key,
-                g => (IReadOnlyDictionary<string, string?>)g.ToDictionary(r => r.PropertyName, r => r.Value, StringComparer.Ordinal),
-                StringComparer.OrdinalIgnoreCase);
+        return ByLanguage(await store.GetAllAsync(MultiLingualMetadata.EntityNameFor(entity.GetType()), entityId, ct));
     }
+
+    // ================================================================== subjects (name + id)
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(
+        string entityName, string entityId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entityName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(entityId);
+
+        return ByLanguage(await store.GetAllAsync(entityName, entityId, ct));
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> ResolveSubjectsAsync(
+        string entityName, IReadOnlyCollection<string> entityIds, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entityName);
+        ArgumentNullException.ThrowIfNull(entityIds);
+
+        if (entityIds.Count == 0)
+            return NoValues;
+
+        // columnBacked: false — a subject has no table of its own, so a configured base language
+        // is a stored language for it like any other. Everything else about the chain, including
+        // whether there is a fallback at all, is the same rule the interceptors read through.
+        HydrationPlan plan;
+        if (languageContext.IsResolved)
+        {
+            plan = Plan(languageContext.Current.Code, languageContext.DefaultLanguage.Code, columnBacked: false);
+        }
+        else
+        {
+            // No language resolved for this scope — a background job, a seeder: the default is
+            // both the language being read and its own fallback.
+            var fallbackOnly = DefaultOf(await catalog.GetAllAsync(ct)).Code;
+            plan = Plan(fallbackOnly, fallbackOnly, columnBacked: false);
+        }
+
+        if (plan.Codes.Length == 0)
+            return NoValues;
+
+        // ONE read for every id. Resolving per id would reintroduce the N+1 this method exists to
+        // avoid: a listing page asks for a whole page of subjects at once.
+        var rows = await store.GetAsync(entityName, entityIds, plan.Codes, ct);
+        if (rows.Count == 0)
+            return NoValues;
+
+        var requested = new Dictionary<(string EntityId, string PropertyName), string?>();
+        var fallbacks = new Dictionary<(string EntityId, string PropertyName), string?>();
+
+        foreach (var row in rows)
+        {
+            var rowKey = (row.EntityId, row.PropertyName);
+
+            if (string.Equals(row.LanguageCode, plan.Language, StringComparison.OrdinalIgnoreCase))
+                requested[rowKey] = row.Value;
+            else if (plan.Fallback is not null && string.Equals(row.LanguageCode, plan.Fallback, StringComparison.OrdinalIgnoreCase))
+                fallbacks[rowKey] = row.Value;
+        }
+
+        var resolved = new Dictionary<string, Dictionary<string, string?>>(StringComparer.Ordinal);
+
+        foreach (var rowKey in requested.Keys.Concat(fallbacks.Keys).Distinct())
+        {
+            requested.TryGetValue(rowKey, out var own);
+            fallbacks.TryGetValue(rowKey, out var borrowed);
+
+            var (value, servedFrom) = Resolve(plan.Language, plan.Fallback, own, borrowed);
+            if (servedFrom is null)
+                continue;
+
+            if (!resolved.TryGetValue(rowKey.EntityId, out var values))
+            {
+                values = new Dictionary<string, string?>(StringComparer.Ordinal);
+                resolved[rowKey.EntityId] = values;
+            }
+
+            values[rowKey.PropertyName] = value;
+        }
+
+        return resolved.Count == 0
+            ? NoValues
+            : resolved.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, string?>)kv.Value, StringComparer.Ordinal);
+    }
+
+    public Task WriteSubjectAsync(
+        string entityName,
+        string entityId,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> valuesByLanguage,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entityName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(entityId);
+        ArgumentNullException.ThrowIfNull(valuesByLanguage);
+
+        // No Source: there is no instance to discard staged values for, or to remember a write
+        // against. WriteAsync still validates the language codes and the key length, and issues
+        // the whole batch as one upsert.
+        return valuesByLanguage.Count == 0
+            ? Task.CompletedTask
+            : WriteAsync([new TranslationWrite(entityName, entityId, valuesByLanguage)], ct);
+    }
+
+    /// <summary>Rows grouped as languageCode → (propertyName → value).</summary>
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> ByLanguage(IReadOnlyList<Translation> rows) =>
+        rows.Count == 0
+            ? NoValues
+            : rows
+                .GroupBy(r => r.LanguageCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (IReadOnlyDictionary<string, string?>)g.ToDictionary(r => r.PropertyName, r => r.Value, StringComparer.Ordinal),
+                    StringComparer.OrdinalIgnoreCase);
 
     // ------------------------------------------------------------------ hydration, shared by both paths
 
@@ -121,13 +226,27 @@ internal sealed partial class TranslationManager(
         return Plan(language.Code, DefaultOf(languages).Code);
     }
 
-    private HydrationPlan Plan(string language, string fallback)
+    /// <summary>
+    /// The read chain for one language: what to serve, what it falls back to, and which of them
+    /// to fetch. <b>The library's one fallback rule lives here</b> — the EF Core interceptors, the
+    /// untracked hydration path and the subject reads all plan their reads through this method, so
+    /// none of them can resolve text differently from the others.
+    /// </summary>
+    /// <param name="language">The language being read.</param>
+    /// <param name="fallback">The default language, which a missing value falls back to.</param>
+    /// <param name="columnBacked">
+    /// True for a <c>[MultiLingual]</c> entity, whose base-language values live in its own
+    /// columns. False for a subject addressed by name and id
+    /// (<see cref="ResolveSubjectsAsync"/>): it has no columns, so a configured base language is
+    /// an ordinary stored language for it rather than the unfetched end of the chain.
+    /// </param>
+    private HydrationPlan Plan(string language, string fallback, bool columnBacked = true)
     {
         // Serving the base language itself ends the chain immediately: its value is the column the
         // entity was loaded with, and it is authoritative. Without this, asking for the base
         // language while some OTHER language is the default would fall through to that default
         // and answer an English request with Arabic.
-        var servingBase = options.IsBaseLanguage(language);
+        var servingBase = columnBacked && options.IsBaseLanguage(language);
 
         var useFallback = !servingBase
                           && options.FallbackToDefaultLanguage
@@ -137,12 +256,23 @@ internal sealed partial class TranslationManager(
         // own table — so it is never fetched. Leaving the materialized value in place IS the last
         // step of the chain, which also means a request for the base language reads nothing at all.
         var codes = (useFallback ? new[] { language, fallback } : [language])
-            .Where(code => !options.IsBaseLanguage(code))
+            .Where(code => !columnBacked || !options.IsBaseLanguage(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         return new HydrationPlan(language, useFallback ? fallback : null, codes);
     }
+
+    /// <summary>
+    /// Picks between the two values a plan fetched: the requested language's, else — when the plan
+    /// has a fallback — the fallback language's. Returns the language it came from, or
+    /// <c>(null, null)</c> when neither has one. Every caller of
+    /// <see cref="Plan(string, string, bool)"/> resolves through here.
+    /// </summary>
+    private static (string? Value, string? ServedFrom) Resolve(string language, string? fallback, string? own, string? borrowed) =>
+        own is not null                                  ? (own, language)
+        : fallback is not null && borrowed is not null    ? (borrowed, fallback)
+        : (null, null);
 
     /// <summary>
     /// The translatable entities, one batch per type — one query each — keyed so that a query
@@ -229,23 +359,13 @@ internal sealed partial class TranslationManager(
     {
         var baseLanguage = options.BaseLanguage;
 
-        string? value = null;
-        string? servedFrom = null;
-        var isFallback = false;
+        // The fallback rule itself: shared with the subject read path, so the two cannot drift.
+        var (value, servedFrom) = Resolve(language, fallback, own, borrowed);
+
+        var isFallback = servedFrom is not null && !string.Equals(servedFrom, language, StringComparison.OrdinalIgnoreCase);
         var keepColumnValue = false;
 
-        if (own is not null)
-        {
-            value      = own;
-            servedFrom = language;
-        }
-        else if (fallback is not null && borrowed is not null)
-        {
-            value      = borrowed;
-            servedFrom = fallback;
-            isFallback = true;
-        }
-        else if (baseLanguage is not null)
+        if (servedFrom is null && baseLanguage is not null)
         {
             // The base language is the column the entity was loaded with: keep it as it is.
             // Writing it back is what the tracker below exists to prevent.

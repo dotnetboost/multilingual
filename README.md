@@ -34,8 +34,9 @@ filters on the *translated* text, in the database.
 
 Works with **.NET 8 and .NET 10**, on **SQL Server, PostgreSQL, SQLite or MongoDB**.
 
-> **Status:** preview. The packages are on NuGet as `1.0.0-preview.1`, so installing them needs
-> `--prerelease` — every command below has it. The API may still change before 1.0.0.
+> **Status:** preview. The packages are on NuGet as `1.0.0-preview.*` prereleases, so installing
+> them needs `--prerelease` — every command below has it. The badge above reports the current
+> version. The API may still change before 1.0.0.
 
 ---
 
@@ -121,16 +122,13 @@ public class Product
 
 public record NameUpdate(string Name);
 
-// Your EF Core context: add the two library tables, and call ApplyMultiLingual() LAST.
-public class AppDbContext(DbContextOptions<AppDbContext> options)
-    : DbContext(options), IMultiLingualDbContext
+// Your EF Core context: nothing to implement, just call ApplyMultiLingual() LAST.
+public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
-    public DbSet<Translation> Translations => Set<Translation>();
-    public DbSet<Language>    Languages    => Set<Language>();
-    public DbSet<Product>     Products     => Set<Product>();
+    public DbSet<Product> Products => Set<Product>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
-        => modelBuilder.ApplyMultiLingual();
+        => modelBuilder.ApplyMultiLingual();   // adds the Translations and Languages tables
 }
 ```
 
@@ -212,10 +210,46 @@ public class ProductService(AppDbContext db, IMultiLingualManager multiLingual)
 | add, change or remove a translation | `.Set("fr", p => p.Name, "Chaise")`, `.Clear("fr")` |
 | find or administer languages | `multiLingual.Languages.FindAsync("ar")`, `CreateAsync(…)`, `SetDefaultAsync(…)`, … |
 | fill translated properties yourself (Dapper, MongoDB) | `await multiLingual.LocalizeAsync(products)` |
+| translate something whose class you don't own | `multiLingual.For("MediaFile", id).Set("ar", "AltText", "…")` |
+| read text for a whole page of those, in one query | `await multiLingual.ForMany("MediaFile", ids).GetAsync()` |
 
 `Set` and `Clear` check the language straight away, so a mistake surfaces where it was made — and
 `MultiLingualExceptionHandler` turns it into problem details, so a controller needs no checks of its
 own. Full tour: [reading and writing](https://github.com/dotnetboost/multilingual/blob/main/docs/reading-and-writing.md).
+
+### Serving subject translations over HTTP
+
+Those last two calls have a REST surface, so an editor UI needs no controller of yours. It is
+opt-in per entity, because the routes take the entity name from the URL — an open route would let
+any caller write translation rows for any entity in the system:
+
+```csharp
+builder.Services.AddMultiLingual()
+    .UseEntityFrameworkCore<AppDbContext>()
+    .ExposeOverHttp(e => e
+        .Allow("MediaFile")        // by name, for a type your application does not own
+        .Allow<Product>())         // by type; the name is resolved through [MultiLingualEntity]
+    .Build();
+
+app.MapTranslationEndpoints();   // adds GET/PUT/POST/DELETE /api/translations
+```
+
+Five routes, under `/api/translations` unless you pass another prefix:
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/{entityName}/{entityId}` | Every stored language |
+| `GET` | `/{entityName}/{entityId}/resolved` | The request's language, with the default-language fallback |
+| `PUT` | `/{entityName}/{entityId}` | Upsert every supplied language, as one batch |
+| `POST` | `/{entityName}/resolve` | Many ids at once, in the request's language — one query |
+| `DELETE` | `/{entityName}/{entityId}` | Every language of that subject |
+
+> ⚠️ **These routes write content, and the exposure list is not an authorization check** — it
+> cannot tell one caller from another. Protect them before you deploy:
+> `app.MapTranslationEndpoints().RequireAuthorization("content-editor")`. An unlisted entity name
+> answers `404` on every verb, and with nothing exposed at all the call maps nothing and logs a
+> warning at startup. See
+> [Securing them](https://github.com/dotnetboost/multilingual/blob/main/docs/rest-api.md#securing-them).
 
 ---
 
@@ -230,9 +264,9 @@ database you already have:
 | Dapper / plain ADO.NET | `DotNetBoost.MultiLingual.Dapper` | `.UseDapper(sp => new SqlConnection(cs), migrateSchema: true)` |
 | MongoDB | `DotNetBoost.MultiLingual.MongoDb` | `.UseMongoDb("mongodb://localhost:27017", "shop")` |
 
-EF Core needs two extra `DbSet`s on your context. Dapper and MongoDB have no change tracker to
-hook, so their users localize after a query and save translations explicitly — a few extra lines,
-the same rules. See the [storage providers
+EF Core needs one call in `OnModelCreating` and nothing else on your context. Dapper and MongoDB
+have no change tracker to hook, so their users localize after a query and save translations
+explicitly — a few extra lines, the same rules. See the [storage providers
 guide](https://github.com/dotnetboost/multilingual/blob/main/docs/storage-providers.md).
 
 **Already have a `Products.Name` column full of English?** Then that content *is* a language. Set
@@ -262,7 +296,8 @@ builder.Services.AddMultiLingual(o => o.BaseLanguage = "en")    // keep English 
 | Filter, sort and project on translated text, in SQL | [Translated queries](https://github.com/dotnetboost/multilingual/blob/main/docs/querying.md) |
 | Keep one language in the entity's own columns | [Base-language mode](https://github.com/dotnetboost/multilingual/blob/main/docs/base-language.md) |
 | Add, deactivate or promote a language at runtime | [Languages](https://github.com/dotnetboost/multilingual/blob/main/docs/languages.md) |
-| Expose and secure the language endpoints | [REST API](https://github.com/dotnetboost/multilingual/blob/main/docs/rest-api.md) |
+| Expose and secure the language and translation endpoints | [REST API](https://github.com/dotnetboost/multilingual/blob/main/docs/rest-api.md) |
+| Join translation rows with another library's (`DotNetBoost.Media`) | [Entity addressing](#entity-addressing) |
 | Return my own error messages in the caller's language | [Localized messages](https://github.com/dotnetboost/multilingual/blob/main/docs/localization.md) |
 | Run on several servers (Redis) | [Languages → the cache](https://github.com/dotnetboost/multilingual/blob/main/docs/languages.md#the-cache) |
 | Give editors a web UI | [Dashboard](https://github.com/dotnetboost/multilingual/blob/main/docs/dashboard.md) |
@@ -270,6 +305,59 @@ builder.Services.AddMultiLingual(o => o.BaseLanguage = "en")    // keep English 
 | Know what this does *not* do | [Known limitations](https://github.com/dotnetboost/multilingual/blob/main/docs/limitations.md) |
 | Run the full demo stack (three APIs, dashboard, PostgreSQL, MongoDB) | [.NET Aspire](https://github.com/dotnetboost/multilingual/blob/main/docs/aspire.md) |
 | Understand how it works inside, or contribute | [Architecture](https://github.com/dotnetboost/multilingual/blob/main/docs/architecture.md) |
+
+---
+
+## Entity addressing
+
+Every translation row is filed against a pair: an **entity name** and an **entity id**. That pair is
+all this library needs to know about your entity, which is why one table serves every
+`[MultiLingual]` class in the system — and why `For("MediaFile", id)` can carry text for a class
+this library has never seen.
+
+Other DotNetBoost libraries file rows against the same pair. `DotNetBoost.Media` stores a file's
+owner that way, so an application can join its media rows with its translation rows. That only
+works while both libraries format the pair identically, so the rules are a versioned spec rather
+than a coincidence.
+
+### DotNetBoost Entity Addressing v1
+
+| | Rule |
+|---|---|
+| **Entity name** | The name fixed by `[MultiLingualEntity("…")]` or `[MultiLingual(EntityName = "…")]`; otherwise the CLR type's `Name` (not its full name, so a namespace move changes nothing). A class generated at runtime — an EF Core lazy-loading proxy, any dynamic-assembly subclass — is addressed as the class it derives from. |
+| **Name length** | At most 128 characters. Stored and compared as written: resolution yields one casing for a given type, so case only matters for a name passed by hand, where whether `"mediafile"` reaches `"MediaFile"`'s rows is the database collation's business. Pass the resolved name. |
+| **Key discovery** | The single property marked `[Key]`, else one named `Id`, else one named `{TypeName}Id` — public, instance, readable, and not an indexer. More than one `[Key]` is a composite key and is **refused**: one column holds one value, and reflection does not order properties, so picking one would key the entity on whichever this runtime happened to return. A provider with a model to read replaces this — both EF Core providers do — and is authoritative where the two disagree. |
+| **Key format** | Invariant culture. `Guid` → `"D"` (lower case, hyphenated, no braces). `int`, `long`, `short`, `byte` → their invariant decimal form. `string` → itself, case preserved. Any other `IFormattable` → invariant `ToString`. |
+| **Key length** | At most 64 characters — a `Guid` in `"D"` form is 36, and every numeric key fits with room to spare. A longer key is refused where it is written, not silently truncated by the database. |
+| **Unset keys** | `null`, `0` (of any integer width), `Guid.Empty` and `""` mean "not assigned yet" and address nothing. A provider whose keys are a custom struct must return `null` from its `IEntityKeyAccessor` for its own unassigned value — Core cannot recognise a type it may not reference. |
+
+Because an id is formatted by the library, `For("X", 42)` and `For("X", "42")` reach the same rows.
+
+### Asserting that two libraries agree
+
+The version is a public constant, so a consumer can state the dependency in one line instead of
+writing its own theory table over key formats:
+
+```csharp
+using DotNetBoost.MultiLingual.Core.Metadata;
+
+[Fact]
+public void MediaAndMultiLingualAddressSubjectsTheSameWay() =>
+    Assert.Equal(
+        DotNetBoost.Media.Core.Metadata.EntityKey.AddressingVersion,
+        EntityKey.AddressingVersion);
+```
+
+`EntityKey.AddressingVersion` is bumped for **any** change to the rules above — entity-name
+resolution, key discovery, key formatting, unset-key detection, or either length limit — so such a
+change fails loudly in every consumer instead of quietly stranding rows that were written under the
+old rules. A rule left off that list is how two libraries drift while both still claim the same
+version. That one equality is the whole of the dependency: there is nothing further to install and
+nothing to keep in step by hand.
+
+`EntityKey.MaxLength` and `MultiLingualMetadata.MaxEntityNameLength` are public as well, for a
+consumer that wants to compare the limits it stores keys and names under rather than trust the
+version alone.
 
 ---
 
@@ -287,6 +375,35 @@ dotnet run --project aspire/DotNetBoost.MultiLingual.AppHost
 
 The API is then on `http://localhost:5160`, with its reference at `/scalar`. See
 [Running everything with .NET Aspire](https://github.com/dotnetboost/multilingual/blob/main/docs/aspire.md).
+
+---
+
+## Upgrading from `1.0.0-preview.1`
+
+One deprecation, and nothing else to change:
+
+**`IMultiLingualDbContext` is obsolete.** An EF Core context no longer implements anything — the
+provider always read the two tables through `context.Set<T>()`, never through the interface's
+properties, so the interface only made contexts declare members nothing called. Drop it and the two
+`DbSet` properties it required; `ApplyMultiLingual()` in `OnModelCreating` is now the whole
+contract:
+
+```diff
+-public class AppDbContext(DbContextOptions<AppDbContext> options)
+-    : DbContext(options), IMultiLingualDbContext
++public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+ {
+-    public DbSet<Translation> Translations => Set<Translation>();
+-    public DbSet<Language>    Languages    => Set<Language>();
+     public DbSet<Product>     Products     => Set<Product>();
+```
+
+Keep the properties only if your own code queries those rows — they map to the same tables either
+way. The interface still compiles for one release, so this is a warning, not a break; it is a build
+error only in a project that treats warnings as errors. Nothing about the stored schema changes.
+
+The full list of changes is in
+[CHANGELOG.md](https://github.com/dotnetboost/multilingual/blob/main/CHANGELOG.md).
 
 ---
 
