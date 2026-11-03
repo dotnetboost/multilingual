@@ -72,10 +72,10 @@ var multilingualDapperDb = postgres.AddDatabase("multilingualdapperdb");
 //  holds the English name while the translations collection holds Arabic and French, one document
 //  per property per language.
 //
-//  This is a STANDALONE mongod — Aspire.Hosting.MongoDB 13.5.2 has no WithReplicaSet — so
-//  transactions are not available here, and the provider's store.WithSession(session) has nothing
-//  to enlist in. The sample does not need them. To try them, run a one-node replica set yourself
-//  and point the sample at it; docs/mongodb.md has the command.
+//  This is a STANDALONE mongod, so transactions are not available here, and the provider's
+//  store.WithSession(session) has nothing to enlist in. The sample does not need them. To try
+//  them, run a one-node replica set yourself and point the sample at it; docs/mongodb.md has the
+//  command.
 // ─────────────────────────────────────────────────────────────────────────────
 var mongo = builder.AddMongoDB("mongo")
     .WithDataVolume("dotnetboost-multilingual-mongodata")
