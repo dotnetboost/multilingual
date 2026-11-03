@@ -37,6 +37,24 @@ public sealed class ComposedShopDbContext(DbContextOptions<ComposedShopDbContext
 
 public sealed class BaseComposedShopDbContext(DbContextOptions<BaseComposedShopDbContext> options) : ComposedDbContext(options);
 
+/// <summary>
+/// The application-owned transaction <c>docs/limitations.md</c> recommends beside other
+/// <c>SaveChanges</c> interceptors when no retrying strategy is configured.
+/// </summary>
+public sealed class AppTransactionDbContext(DbContextOptions<AppTransactionDbContext> options) : ComposedDbContext(options)
+{
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        if (Database.CurrentTransaction is not null || System.Transactions.Transaction.Current is not null)
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return saved;
+    }
+}
+
 /// <summary>Where the follow-up interceptor sits relative to <c>UseMultiLingual</c>.</summary>
 public enum FollowUpOrder
 {
@@ -131,14 +149,17 @@ internal sealed class ComposedShop : IAsyncDisposable
     private readonly ServiceProvider _root;
     private readonly Type _contextType;
     private readonly bool _baseLanguage;
+    private readonly bool _ownTransactions;
 
-    private ComposedShop(SqliteConnection connection, ServiceProvider root, Type contextType, bool baseLanguage, FollowUpProbe probe)
+    private ComposedShop(
+        SqliteConnection connection, ServiceProvider root, Type contextType, bool baseLanguage, bool ownTransactions, FollowUpProbe probe)
     {
-        _connection   = connection;
-        _root         = root;
-        _contextType  = contextType;
-        _baseLanguage = baseLanguage;
-        Probe         = probe;
+        _connection      = connection;
+        _root            = root;
+        _contextType     = contextType;
+        _baseLanguage    = baseLanguage;
+        _ownTransactions = ownTransactions;
+        Probe            = probe;
     }
 
     public FollowUpProbe Probe { get; }
@@ -146,7 +167,10 @@ internal sealed class ComposedShop : IAsyncDisposable
     /// <param name="order">Where the follow-up interceptor is registered.</param>
     /// <param name="retrying">Whether a retrying execution strategy is configured.</param>
     /// <param name="baseLanguage">Whether <c>BaseLanguage = "en"</c>.</param>
-    public static async Task<ComposedShop> StartAsync(FollowUpOrder order, bool retrying, bool baseLanguage = false)
+    /// <param name="ownTransactions">What <c>OwnTransactions(bool)</c> is set to.</param>
+    /// <param name="appTransactions">Whether the context opens its own transaction around every save.</param>
+    public static async Task<ComposedShop> StartAsync(
+        FollowUpOrder order, bool retrying, bool baseLanguage = false, bool ownTransactions = true, bool appTransactions = false)
     {
         var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
         await connection.OpenAsync();
@@ -155,12 +179,16 @@ internal sealed class ComposedShop : IAsyncDisposable
         var services = new ServiceCollection();
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
 
-        var contextType = baseLanguage
-            ? Register<BaseComposedShopDbContext>(services, connection, order, retrying, probe, o => o.BaseLanguage = "en")
-            : Register<ComposedShopDbContext>(services, connection, order, retrying, probe, _ => { });
+        var contextType = (baseLanguage, appTransactions) switch
+        {
+            (true, false) => Register<BaseComposedShopDbContext>(services, connection, order, retrying, ownTransactions, probe, o => o.BaseLanguage = "en"),
+            (false, false) => Register<ComposedShopDbContext>(services, connection, order, retrying, ownTransactions, probe, _ => { }),
+            (false, true) => Register<AppTransactionDbContext>(services, connection, order, retrying, ownTransactions, probe, _ => { }),
+            _ => throw new NotSupportedException("No base-language context with application transactions."),
+        };
 
         var shop = new ComposedShop(
-            connection, services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }), contextType, baseLanguage, probe);
+            connection, services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }), contextType, baseLanguage, ownTransactions, probe);
 
         await using var scope = shop.Scope();
         await scope.Db.Database.EnsureCreatedAsync();
@@ -177,11 +205,12 @@ internal sealed class ComposedShop : IAsyncDisposable
         SqliteConnection connection,
         FollowUpOrder order,
         bool retrying,
+        bool ownTransactions,
         FollowUpProbe probe,
         Action<Core.MultiLingualOptions> configure)
         where TContext : ComposedDbContext
     {
-        services.AddMultiLingual(configure).UseEntityFrameworkCore<TContext>().Build();
+        services.AddMultiLingual(configure).UseEntityFrameworkCore<TContext>().OwnTransactions(ownTransactions).Build();
         services.AddDbContext<TContext>((sp, options) =>
         {
             // The cached delegate, so every test's options look alike to EF's internal provider cache.
@@ -230,7 +259,23 @@ internal sealed class ComposedShop : IAsyncDisposable
                 scope.Translations.Stage(product, language, new Dictionary<string, string?> { ["Name"] = value });
 
             scope.Db.Products.Add(product);
-            await scope.Db.SaveChangesAsync();
+
+            // With OwnTransactions(false) a save that writes translations needs the caller's
+            // transaction, inside the strategy when one retries.
+            if (_ownTransactions)
+            {
+                await scope.Db.SaveChangesAsync();
+            }
+            else
+            {
+                await scope.Db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+                {
+                    await using var transaction = await scope.Db.Database.BeginTransactionAsync();
+                    await scope.Db.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+            }
+
             return product.Id;
         }
         finally
@@ -503,6 +548,103 @@ public sealed class SaveCompositionTests
 
         Assert.Equal([true], shop.Probe.RanInsideTransaction);
         Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    // ----------------------------------------------------------------- OwnTransactions(false)
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false)]
+    [InlineData(FollowUpOrder.Before, true)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task OwnTransactionsOff_WithoutACallerTransaction_RefusesTheSave_BeforeWritingAnything(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying, ownTransactions: false);
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Db.SaveChangesAsync());
+
+            Assert.Contains("OwnTransactions(false)", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("docs/limitations.md", ex.Message, StringComparison.Ordinal);
+            Assert.Null(scope.Db.Database.CurrentTransaction);
+        }
+
+        Assert.Empty(shop.Probe.RanInsideTransaction);
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnTransactionsOff_ASaveWithNoTranslationWork_IsNotRefused(bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(FollowUpOrder.After, retrying, ownTransactions: false);
+        var id = await shop.SeedProductAsync("Laptop", ("fr", "Ordinateur"));
+
+        await using (var scope = await shop.ScopeInAsync("ar"))
+        {
+            var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+            product.Price = 20;
+            await scope.Db.SaveChangesAsync();
+        }
+
+        Assert.Equal([("en", (string?)"Laptop"), ("fr", "Ordinateur")], await shop.StoredNamesAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before)]
+    [InlineData(FollowUpOrder.After)]
+    public async Task TheDocumentedAppTransaction_RunsEverythingInside(FollowUpOrder order)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying: false, ownTransactions: false, appTransactions: true);
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            await scope.Db.SaveChangesAsync();
+        }
+
+        Assert.Equal([true], shop.Probe.RanInsideTransaction);
+        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before)]
+    [InlineData(FollowUpOrder.After)]
+    public async Task TheDocumentedAppTransaction_RollsBackEverything(FollowUpOrder order)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying: false, ownTransactions: false, appTransactions: true);
+        shop.Probe.FailAfterFollowUp = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            await Assert.ThrowsAsync<FollowUpFailedException>(() => scope.Db.SaveChangesAsync());
+        }
+
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before)]
+    [InlineData(FollowUpOrder.After)]
+    public async Task TheDocumentedAppTransaction_Delete_RemovesTheTranslations(FollowUpOrder order)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying: false, ownTransactions: false, appTransactions: true);
+        var id = await shop.SeedProductAsync("Laptop", ("fr", "Ordinateur"));
+
+        await using (var scope = shop.Scope())
+        {
+            var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+            scope.Db.Products.Remove(product);
+            await scope.Db.SaveChangesAsync();
+        }
+
+        Assert.Empty(await shop.StoredNamesAsync());
+        Assert.Equal((0, 0, 1), await shop.StoredCountsAsync());
     }
 
     // ----------------------------------------------------------------- recovery: saves EF never reports as failed

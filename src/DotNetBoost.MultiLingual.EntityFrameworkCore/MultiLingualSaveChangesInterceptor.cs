@@ -72,6 +72,9 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     private MultiLingualOptions? _options;
     private MultiLingualOptions Options => _options ??= services.GetRequiredService<MultiLingualOptions>();
 
+    private EfCoreSaveOptions? _saveOptions;
+    private EfCoreSaveOptions SaveOptions => _saveOptions ??= services.GetService<EfCoreSaveOptions>() ?? new EfCoreSaveOptions();
+
     // Scoped, and read fresh: the language is resolved after this interceptor is constructed.
     private ILanguageContext LanguageContext => services.GetRequiredService<ILanguageContext>();
 
@@ -85,7 +88,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (eventData.Context is not { } context)
             return result;
 
-        if (!result.HasResult && !IsNested(context) && NeedsRetryingSave(context))
+        if (!result.HasResult && SaveOptions.OwnTransactions && !IsNested(context) && NeedsRetryingSave(context))
             return InterceptionResult<int>.SuppressWithResult(await SaveUnderStrategyAsync(context, cancellationToken));
 
         if (Begin(context) is not { } state)
@@ -94,11 +97,11 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         try
         {
             if (NeedsOwnTransaction(context, state))
-                state.OwnedTransaction = await context.Database.BeginTransactionAsync(cancellationToken);
+                state.OwnedTransaction = await BeginOwnedTransactionAsync(context, cancellationToken);
         }
         catch
         {
-            Abandon(state);
+            Abandon(context, state);
             throw;
         }
 
@@ -112,7 +115,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (eventData.Context is not { } context)
             return result;
 
-        if (!result.HasResult && !IsNested(context) && NeedsRetryingSave(context))
+        if (!result.HasResult && SaveOptions.OwnTransactions && !IsNested(context) && NeedsRetryingSave(context))
             return InterceptionResult<int>.SuppressWithResult(SaveUnderStrategy(context));
 
         if (Begin(context) is not { } state)
@@ -121,11 +124,11 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         try
         {
             if (NeedsOwnTransaction(context, state))
-                state.OwnedTransaction = context.Database.BeginTransaction();
+                state.OwnedTransaction = BeginOwnedTransaction(context);
         }
         catch
         {
-            Abandon(state);
+            Abandon(context, state);
             throw;
         }
 
@@ -427,10 +430,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         }
         catch
         {
-            // EF raises no SaveChangesFailed for a SavingChanges that throws, so nothing else would
-            // put back what ApplyBaseLanguageRules adjusted, or end this save.
-            state.Snapshot?.Restore(context);
-            Abandon(state);
+            Abandon(context, state);
             throw;
         }
     }
@@ -519,9 +519,13 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         return true;
     }
 
-    /// <summary>Ends a save that never got going.</summary>
-    private static void Abandon(SaveState state)
+    /// <summary>
+    /// Ends a save refused in <c>SavingChanges</c>. EF raises no <c>SaveChangesFailed</c> for it, so
+    /// nothing else would put back what <c>ApplyBaseLanguageRules</c> adjusted, or end this save.
+    /// </summary>
+    private static void Abandon(DbContext context, SaveState state)
     {
+        state.Snapshot?.Restore(context);
         state.Depth = 0;
         state.Reset();
     }
@@ -634,6 +638,35 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
 
         if (untouched.Count > 0)
             Manager.MarkAsBaseLanguageValues(entry.Entity, untouched);
+    }
+
+    private Task<IDbContextTransaction> BeginOwnedTransactionAsync(DbContext context, CancellationToken ct)
+    {
+        EnsureMayOwnTransaction();
+        return context.Database.BeginTransactionAsync(ct);
+    }
+
+    private IDbContextTransaction BeginOwnedTransaction(DbContext context)
+    {
+        EnsureMayOwnTransaction();
+        return context.Database.BeginTransaction();
+    }
+
+    /// <summary>
+    /// With <c>OwnTransactions(false)</c>, a save that writes translations without a transaction of
+    /// the caller's is refused before anything reaches the database, rather than written in pieces.
+    /// </summary>
+    private void EnsureMayOwnTransaction()
+    {
+        if (SaveOptions.OwnTransactions)
+            return;
+
+        throw new InvalidOperationException(
+            "This save writes translations and no transaction is open, and OwnTransactions(false) " +
+            "leaves opening one to the application. Open one around SaveChanges, for instance in a " +
+            "SaveChangesAsync override; under a retrying execution strategy, keep OwnTransactions on " +
+            "and register UseMultiLingual before the other interceptors instead. See 'Sharing a " +
+            "DbContext with other SaveChanges interceptors' in docs/limitations.md.");
     }
 
     private static bool NeedsOwnTransaction(DbContext context, SaveState state) =>

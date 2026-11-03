@@ -36,9 +36,60 @@ What this library does not do, and what to do instead.
   replays them together on a transient failure. Two side effects — other interceptors see an extra
   `SavingChanges`/`SavedChanges` pair for the replayed save, and changes are accepted on success
   even under `SaveChanges(acceptAllChangesOnSuccess: false)`. To avoid both, open the transaction
-  yourself inside `Database.CreateExecutionStrategy().ExecuteAsync(…)`.
+  yourself inside `Database.CreateExecutionStrategy().ExecuteAsync(…)` — unless another
+  interceptor on the context saves again after a save; see the next section.
 - **Two contexts of the same type** configured with different `BaseLanguage` values in one process
   share EF Core's cached model. Use one mode per context type.
+
+## Sharing a DbContext with other SaveChanges interceptors
+
+Another library's interceptor on the same context (an audit trail, say) changes one thing: **who
+owns the transaction**. What the save interceptor does at each step:
+
+| Step | What it does |
+|---|---|
+| `SavingChanges` | Captures the translation work. When there is some and no transaction is open (neither `Database.CurrentTransaction` nor an ambient `TransactionScope`), opens one |
+| `SavedChanges` | Writes the translation rows through the same context. That is a nested `SaveChanges`, which other interceptors see too. Then commits the transaction it opened |
+| `SaveChangesFailed`, `SaveChangesCanceled`, `ThrowingConcurrencyException` | Rolls back the transaction it opened, and puts the change tracker back so the save can be retried |
+
+EF Core runs interceptors in the order they were added. So an interceptor registered **after**
+`UseMultiLingual` does its post-save work after that commit, outside the transaction, and a
+failure there can no longer roll the entity back. Nothing reports it. The transaction also exists
+only when the save writes translations: a save that changes only a price opens none, so another
+interceptor cannot rely on it.
+
+A `SaveChanges` that an interceptor registered **before** `UseMultiLingual` issues from its own
+`SavedChanges` is recognised as nested inside the save in progress: its work joins that save, which
+alone writes, commits or rolls back.
+
+What to do:
+
+| Your setup | Do this |
+|---|---|
+| No retrying execution strategy | Open the transaction yourself, around every `SaveChanges` (below). Every interceptor then runs inside it, in either order, whether or not the save writes translations. Add `.OwnTransactions(false)` so that a save which would otherwise have opened its own (one that bypasses the override, say) is refused instead. Registering `UseMultiLingual(sp)` **after** the other interceptors also keeps their work inside this library's transaction, but only for saves that write translations |
+| A retrying strategy (`EnableRetryOnFailure`) | Keep `OwnTransactions` on and register `UseMultiLingual(sp)` **before** the other interceptors. The save interceptor then runs the whole save, every interceptor's work included, inside one transaction under the strategy, and replays it as a unit. This one opens a transaction whenever a translatable entity is tracked |
+
+The application-owned transaction, in the context. Override the synchronous `SaveChanges(bool)`
+the same way if you call it:
+
+```csharp
+public override async Task<int> SaveChangesAsync(bool accept, CancellationToken ct = default)
+{
+    if (Database.CurrentTransaction is not null || Transaction.Current is not null)
+        return await base.SaveChangesAsync(accept, ct);
+
+    await using var tx = await Database.BeginTransactionAsync(ct);
+    var result = await base.SaveChangesAsync(accept, ct);
+    await tx.CommitAsync(ct);
+    return result;
+}
+```
+
+Do not combine that with a retrying strategy through EF's usual
+`ExecuteAsync(… SaveChangesAsync(acceptAllChangesOnSuccess: false) … AcceptAllChanges())` pattern
+when another interceptor saves again from its `SavedChanges`. Its changes are not accepted yet when
+that second save runs, so the second save writes them again: an added row is inserted twice, and a
+deleted one fails as a concurrency conflict.
 
 ## Providers without a change tracker
 

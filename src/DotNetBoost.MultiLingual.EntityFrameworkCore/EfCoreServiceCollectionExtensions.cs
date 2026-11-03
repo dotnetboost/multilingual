@@ -36,6 +36,37 @@ namespace Microsoft.Extensions.DependencyInjection
 
             return builder;
         }
+
+        /// <summary>
+        /// Whether the save interceptor opens a transaction of its own when a save writes
+        /// translations and the caller has none. Default: <c>true</c>, so the entity and its
+        /// translations commit or roll back together with no setup.
+        /// <para>
+        /// Pass <c>false</c> when the context carries other <c>SaveChanges</c> interceptors that do
+        /// post-save work. A transaction this interceptor opens is committed in its own
+        /// <c>SavedChanges</c>, so an interceptor that runs after it works outside the transaction.
+        /// With <c>false</c> the application opens the transaction around <c>SaveChanges</c> and
+        /// every interceptor runs inside it; a save that writes translations without one is
+        /// refused before anything is written. See <i>Sharing a DbContext with other SaveChanges
+        /// interceptors</i> in <c>docs/limitations.md</c>.
+        /// </para>
+        /// </summary>
+        public static MultiLingualBuilder OwnTransactions(this MultiLingualBuilder builder, bool own)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            var options = builder.Services
+                .FirstOrDefault(d => d.ServiceType == typeof(EfCoreSaveOptions))?.ImplementationInstance as EfCoreSaveOptions;
+
+            if (options is null)
+            {
+                options = new EfCoreSaveOptions();
+                builder.Services.AddSingleton(options);
+            }
+
+            options.OwnTransactions = own;
+            return builder;
+        }
     }
 
     /// <summary>Attaches the MultiLingual interceptors to a context.</summary>
@@ -68,5 +99,14 @@ namespace Microsoft.Extensions.DependencyInjection
                 MultiLingualQueryInterceptor.Instance,
                 LanguageTokenInterceptor.Instance);
         }
+    }
+}
+
+namespace DotNetBoost.MultiLingual.EntityFrameworkCore
+{
+    /// <summary>How the save interceptor handles transactions; set through <c>OwnTransactions(bool)</c>.</summary>
+    internal sealed class EfCoreSaveOptions
+    {
+        public bool OwnTransactions { get; set; } = true;
     }
 }

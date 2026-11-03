@@ -64,7 +64,7 @@ So the cause is most likely outside this library: Auditing's own state handling 
 value into `""`. The sample uses HiLo keys today, so nothing is deferred there now; the observation
 dates from an identity-key setup.
 
-## 2. The owned transaction is committed before later interceptors run
+## 2. The owned transaction is committed before later interceptors run — partly addressed
 
 **What goes wrong.** When the caller has no transaction, `SavingChangesAsync` opens one and
 `SavedChangesAsync` commits it (`CommitOwnedTransactionAsync`). EF runs interceptors in the order
@@ -92,62 +92,38 @@ Two more things `SaveCompositionTests` showed:
 `FailureAfterTheFollowUp_RollsBackEverything` fail when the follow-up interceptor is registered
 after (no strategy) and when it is registered before under a retrying strategy.
 
-**Fix.** Pick one of these, then document it either way. Until one ships, the caller-owned
-transaction in step 3 is the safe default to recommend.
+**Shipped so far** (unreleased, see `CHANGELOG.md`):
 
-1. **Option A: run every owned save the way the retrying path does.** When there is work and no
-   caller transaction, `SavingChanges(Async)` opens the transaction, runs the save inside it,
-   commits, and returns `SuppressWithResult`. That covers every interceptor that does its work in
-   the inner save. It does **not** cover one registered first that waits for the outermost save,
-   which is exactly what Auditing's gap 2 fix proposes; the two proposals conflict, so settle them
-   together. It also costs what the class remarks already state for the retrying path: other
-   interceptors see a `SavingChanges`/`SavedChanges` pair for the inner save as well as the outer
-   one, and `SaveChanges(false)` still accepts changes on success.
-2. **Option B: make the problem visible.** Add `MultiLingualBuilder.OwnTransactions(bool)`,
-   defaulting to `true` as today. With `false`, the interceptor never opens a transaction. When it
-   has work and finds neither `Database.CurrentTransaction` nor `Transaction.Current`, it throws a
-   clear message that names the pattern in step 3.
-3. Document the safe pattern in `docs/limitations.md`: the application opens the transaction, so
-   no interceptor owns it. Override the synchronous `SaveChanges(bool)` the same way.
+- **Option B:** `.OwnTransactions(false)`. The interceptor then never opens a transaction, and a
+  save that writes translations with neither `Database.CurrentTransaction` nor
+  `Transaction.Current` is refused in `SavingChanges`, before anything reaches the database. It
+  also turns off the retrying path, which opens a transaction too.
+- **The docs:** *Sharing a DbContext with other SaveChanges interceptors* in `docs/limitations.md`,
+  linked from `docs/architecture.md` and the configuration reference. What each hook does, and
+  what to do per setup, each line backed by a `SaveCompositionTests` case:
+  - no retrying strategy: the application opens the transaction around every `SaveChanges`, which
+    keeps every interceptor inside it in either order
+    (`TheDocumentedAppTransaction_*`, `CallerTransaction_KeepsEverythingAtomic`);
+  - a retrying strategy: keep `OwnTransactions` on and register `UseMultiLingual` first (the
+    `After, true` rows).
 
-   ```csharp
-   public override async Task<int> SaveChangesAsync(bool accept, CancellationToken ct = default)
-   {
-       if (Database.CurrentTransaction is not null || Transaction.Current is not null)
-           return await base.SaveChangesAsync(accept, ct);
+**Corrected: the retrying-strategy variant these notes proposed does not work.** It used EF's usual
+`SaveChangesAsync(acceptAllChangesOnSuccess: false)` plus `AcceptAllChanges()` after the commit.
+Beside an interceptor that saves again from its `SavedChanges`, the outer save's changes are not
+accepted yet when that second save runs, so the second save writes them again: the product was
+inserted twice, and a delete failed as a concurrency conflict. The docs now warn against it, and
+recommend this library's own retrying path instead.
 
-       await using var tx = await Database.BeginTransactionAsync(ct);
-       var result = await base.SaveChangesAsync(accept, ct);
-       await tx.CommitAsync(ct);
-       return result;
-   }
-   ```
-
-   With `EnableRetryOnFailure`, the strategy refuses a transaction it did not start, so the variant
-   runs inside it. Changes are accepted only after the commit; otherwise a failed commit would leave
-   every entry `Unchanged` and the replay would write nothing:
-
-   ```csharp
-   public override Task<int> SaveChangesAsync(bool accept, CancellationToken ct = default)
-   {
-       if (Database.CurrentTransaction is not null || Transaction.Current is not null)
-           return base.SaveChangesAsync(accept, ct);
-
-       return Database.CreateExecutionStrategy().ExecuteAsync(async ct =>
-       {
-           await using var tx = await Database.BeginTransactionAsync(ct);
-           var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess: false, ct);
-           await tx.CommitAsync(ct);
-           if (accept) ChangeTracker.AcceptAllChanges();
-           return result;
-       }, ct);
-   }
-   ```
-
-4. Add the section *Sharing a DbContext with other SaveChanges interceptors* to
-   `docs/limitations.md` and `docs/architecture.md`. List what each hook does, that the translation
-   store's upsert issues a nested `SaveChanges` (`Stores.cs`) which other interceptors will see,
-   and which registration order is recommended until the issue is gone.
+**Still open: Option A.** Run every owned save the way the retrying path does: when there is work
+and no caller transaction, `SavingChanges(Async)` opens the transaction, runs the save inside it,
+commits, and returns `SuppressWithResult`. That covers every interceptor that does its work in the
+inner save. It does **not** cover one registered first that waits for the outermost save, which is
+exactly what Auditing's gap 2 fix proposes, and the `Before, true` rows show it failing today. The
+two proposals conflict, so settle them together, probably by having neither library save again on
+the caller's context (see *Related*). It also costs what the class remarks already state for the
+retrying path: other interceptors see a `SavingChanges`/`SavedChanges` pair for the inner save as
+well as the outer one, and `SaveChanges(false)` still accepts changes on success. The six skipped
+rows in `SaveCompositionTests` are this gap.
 
 **Related.** The translation store's nested `SaveChanges` is itself what trips Auditing (see that
 repo's `COMPOSITION-GAPS.md`, gap 2). Only the upsert path does this: deletes already go through
@@ -253,16 +229,14 @@ again on the same context, and relies on whatever transaction is open. Each case
 registered before and after `UseMultiLingual`, with and without a retrying strategy, over a
 product with an identity key, in both modes. Rows that fail today are skipped with the gap they
 belong to, so each fix un-skips its own. The gap 1 rows pass now; the six still skipped are gap 2.
-The same file covers the failures EF never reports (gap 1, *What shipped*) and a nested save that
-itself fails.
+The same file covers the failures EF never reports (gap 1, *What shipped*), a nested save that
+itself fails, `OwnTransactions(false)` (gap 2), and the documented application-owned transaction.
 
 **Still to do.**
 
-1. With `OwnTransactions(false)` (gap 2, option B) and no caller transaction, assert the error is
-   clear.
-2. Synchronous `SaveChanges` variants, beside `SyncSaveChangesTests`.
-3. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
-4. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
+1. Synchronous `SaveChanges` variants, beside `SyncSaveChangesTests`.
+2. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
+3. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
    `Accept-Language: ar`, they must write the base columns, store no base text as an Arabic
    translation, return the base text after a save under `ar`, and leave `CurrentLanguage`
    unchanged.

@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`.OwnTransactions(bool)`** (EF Core). The save interceptor opens a transaction of its own when a
+  save writes translations and the caller has none, and commits it in its own `SavedChanges`. An
+  interceptor registered after it, an audit trail say, then does its post-save work after that
+  commit, outside the transaction. `false` leaves the transaction to the application: a save that
+  writes translations without one is refused before anything is written, instead of half of it
+  landing outside a transaction. Default `true`, as before.
+- **[Sharing a DbContext with other SaveChanges interceptors](docs/limitations.md#sharing-a-dbcontext-with-other-savechanges-interceptors).**
+  What each hook does, and what to do per setup: open the transaction yourself around
+  `SaveChanges`, or, under a retrying strategy, register `UseMultiLingual` before the other
+  interceptors. It also says why EF's usual `acceptAllChangesOnSuccess: false` retry pattern breaks
+  beside an interceptor that saves again.
+
 ### Fixed
 - **A save issued by another interceptor from inside ours no longer wipes ours.** An interceptor
   registered before `UseMultiLingual` runs its `SavedChanges` first; a `SaveChanges` it issued

@@ -8,6 +8,7 @@ configuration and every `[MultiLingual]` type in the loaded assemblies.
 | Method | Package | Description |
 |---|---|---|
 | `.UseEntityFrameworkCore<TContext>()` | EntityFrameworkCore | Backing store. `TContext` is any `DbContext` that calls `ApplyMultiLingual()` in `OnModelCreating` |
+| `.OwnTransactions(bool)` | EntityFrameworkCore | Whether the save interceptor opens a transaction when a save writes translations and the caller has none (default `true`). `false` leaves it to the application and refuses such a save without one; see [sharing a DbContext with other interceptors](limitations.md#sharing-a-dbcontext-with-other-savechanges-interceptors) |
 | `.UseDapper(connectionFactory, migrateSchema, configure)` | Dapper | Backing store; optionally creates the two tables at startup |
 | `.UseMongoDb(configure)` | MongoDb | Backing store, over the `IMongoDatabase` your application registers |
 | `.UseMongoDb(connectionString, databaseName, configure)` | MongoDb | Backing store, over a client the provider owns |
