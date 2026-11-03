@@ -6,7 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- **A save issued by another interceptor from inside ours no longer wipes ours.** An interceptor
+  registered before `UseMultiLingual` runs its `SavedChanges` first; a `SaveChanges` it issued
+  there (Auditing's deferred pass does) restarted this interceptor's save. The outer save's
+  translation deletes were lost, leaving the rows behind, and its transaction was committed from
+  inside the nested save, so a failure afterwards rolled nothing back. Saves are now counted per
+  context: a nested one adds its work to the outer save, and only the outermost completion writes,
+  commits or rolls back. A save that EF never reported as finished (an interceptor's
+  `SavingChanges` threw) is not mistaken for one still in flight.
+- **A concurrency conflict or a cancelled save left this interceptor's transaction open.** EF
+  reports neither through `SaveChangesFailed`, only through `ThrowingConcurrencyException` and
+  `SaveChangesCanceled`, which were not handled. Both now roll back the transaction and restore the
+  change tracker, as a failed save always did.
 
 ## [1.0.0-preview.2] - 2026-10-10
 

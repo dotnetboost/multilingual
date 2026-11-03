@@ -7,57 +7,62 @@ wrong, why, and the steps to fix it here. Delete an entry once it ships.
 
 ---
 
-## 1. Another interceptor's save inside ours wipes the outer save's state
+## 1. Another interceptor's save inside ours wiped the outer save's state — fixed, unreleased
 
-**What goes wrong.** `SaveState` is kept per context, not per save. `Begin(context)` guards only
-against this library's own nested save (`state.IsApplying`); any other `SaveChanges` calls
-`state.Reset()` and re-captures the tracker. That is harmless when the other save starts after this
-interceptor's `SavedChanges` has finished, because nothing is in flight then. It is not harmless
-when the other save starts **between** this interceptor's `SavingChanges` and `SavedChanges`. That
-happens when an interceptor registered *before* `UseMultiLingual` issues a `SaveChanges` from its
-own `SavedChanges` (Auditing's deferred pass does exactly that). The nested save then:
+**Fixed** in `MultiLingualSaveChangesInterceptor` (see `CHANGELOG.md`, *Unreleased*). Delete this
+entry once that ships.
 
-- clears the outer save's pending deletes. The deleted entries are already detached, so the nested
-  `Begin` cannot capture them again, and their translation rows are left behind;
-- drops the outer save's `Snapshot`, so a later failure can no longer restore the tracker;
-- commits the outer save's transaction. `Reset()` keeps `OwnedTransaction`, and
-  `NeedsOwnTransaction` is false inside it, so the nested `SavedChanges` commits a transaction it
-  did not open. The outer `SavedChanges` then finds no work and nothing to commit.
+**What went wrong.** `SaveState` is kept per context, and `Begin` restarted it for any save but
+this library's own nested one. An interceptor registered *before* `UseMultiLingual` runs its
+`SavedChanges` first, so a `SaveChanges` it issued there (Auditing's deferred pass does) dropped the
+outer save's pending deletes and snapshot, and committed its transaction from the inside.
+`SaveCompositionTests` confirmed both a lost delete and a failure that rolled nothing back.
 
-What `Reset()` does **not** do is forget what the read path or the previous save put on an entity.
-That baseline lives in `HydratedValueTracker` (`Core/Services/ScopeState.cs`), keyed by entity,
-and survives `Reset()`. `RememberPersisted` updates it after every save, and `CaptureValues` skips
-unchanged values through it.
+**What shipped.**
 
-**Confirmed by `SaveCompositionTests`** (registered before, no retrying strategy): a delete leaves
-its translation rows behind (`Delete_RemovesTheTranslations`), and a failure after the follow-up
-save leaves the product, its translation and the follow-up row committed
-(`FailureAfterTheFollowUp_RollsBackEverything`). Under a retrying strategy the replayed save hides
-the first problem; the second remains (gap 2).
+- Saves are counted per context (`SaveState.Depth`). A save nested in an outer one adds its work
+  to the outer state without resetting it, skipping entries already pending, and only the
+  outermost completion writes, commits or rolls back.
+- A nested save's failure is left to whoever issued it. The notes proposed marking the outer save
+  failed instead; that was dropped, because when the outer save had no transaction of its own
+  its changes are already committed, and failing it would report a loss that did not happen.
+- **What EF does and does not report**, checked on EF 8 and 10. Auditing's depth tracking (its
+  gap 2) needs the same care:
+
+  | Event | Interceptor callback |
+  |---|---|
+  | An interceptor's `SavingChanges` throws | **none** |
+  | A concurrency conflict | `ThrowingConcurrencyException` only |
+  | A cancelled save | `SaveChangesCanceled` only |
+  | An interceptor's `SavedChanges` throws | `SaveChangesFailed` |
+
+  The last three are now handled, which also fixes a leak older than this work: a concurrency
+  conflict or a cancellation left the owned transaction open. For the first, a save counts as
+  nested only while the outer save's changed entries have all been accepted, i.e. EF has already
+  saved them. A save EF never finished does not satisfy that, so the next save starts over
+  instead of waiting forever for a completion that will not come.
+
+**Known limits.**
+
+- An outer save that changed only unmapped translatable properties gives the check nothing to go
+  on, so a save nested inside it starts over as before. Interceptors like Auditing do no
+  follow-up save after a save with no tracked changes, so this should not arise.
+- With `SaveChanges(acceptAllChangesOnSuccess: false)` the outer entries are never accepted, so a
+  nested save also starts over, as before.
+- If an interceptor *after* this one throws from `SavingChanges` during a **nested** save, that
+  save is never reported finished, and the outer save's completion or failure is counted as the
+  nested one. The outer translations are then not written, and an owned transaction is neither
+  committed nor rolled back; it ends when the context is disposed, which rolls it back. It takes
+  three interceptors and a refusal at that exact point.
 
 **Not reproduced: the empty product name.** In the sample, an Auditing follow-up save was seen to
-write an empty product name over the stored one. The same tests run the base-language flows in all
-four arrangements, both an update under `ar` and the sample's own `TranslatedText.SaveAsync`
-sequence, and the stored column and translation come out right every time
-(`BaseLanguage_UpdateUnderAnotherLanguage_KeepsTheColumn`,
-`BaseLanguage_TheSamplesEditorFlow_KeepsBothLanguages`). So the cause is most likely outside this
-library: Auditing's own state handling (that repo's `COMPOSITION-GAPS.md`, gap 2) or the sample's
-`TranslatedText.Assign`, which turns a `null` base value into `""`. The sample uses HiLo keys
-today, so nothing is deferred there now; the observation dates from an identity-key setup.
-
-**Fix: track save depth per context, the way Auditing's gap 2 proposes.**
-
-1. Add `int Depth` to `SaveState`. `SavingChanges(Async)` increments it, `SavedChanges(Async)` and
-   `SaveChangesFailed(Async)` decrement it. `IsApplying` stays as it is: our own nested save is
-   still ignored entirely.
-2. In `Begin` at `Depth > 0`: do not `Reset()`, do not take a new `Snapshot`, and do not open a
-   transaction. Capture into the same state, skipping entries already pending. A Deleted entry
-   seen only by the nested save is still captured there, while its key is readable.
-3. In `SavedChanges(Async)` at `Depth > 0`: write nothing, commit nothing. Only the outermost
-   completion runs `PrepareApply`, the writes and deletes, the commit and `Complete`.
-4. In `SaveChangesFailed(Async)` at `Depth > 0`: mark the state failed instead of rolling back.
-   The outermost completion then rolls back and restores the snapshot instead of committing, even
-   if the interceptor that issued the nested save swallowed the exception.
+write an empty product name over the stored one. `SaveCompositionTests` runs the base-language
+flows in all four arrangements, both an update under `ar` and the sample's own
+`TranslatedText.SaveAsync` sequence, and the stored column and translation come out right every time.
+So the cause is most likely outside this library: Auditing's own state handling (that repo's
+`COMPOSITION-GAPS.md`, gap 2) or the sample's `TranslatedText.Assign`, which turns a `null` base
+value into `""`. The sample uses HiLo keys today, so nothing is deferred there now; the observation
+dates from an identity-key setup.
 
 ## 2. The owned transaction is committed before later interceptors run
 
@@ -247,17 +252,17 @@ pass: once the outermost save that changed a product completes, it adds a row of
 again on the same context, and relies on whatever transaction is open. Each case runs with it
 registered before and after `UseMultiLingual`, with and without a retrying strategy, over a
 product with an identity key, in both modes. Rows that fail today are skipped with the gap they
-belong to (six of thirty), so each fix un-skips its own.
+belong to, so each fix un-skips its own. The gap 1 rows pass now; the six still skipped are gap 2.
+The same file covers the failures EF never reports (gap 1, *What shipped*) and a nested save that
+itself fails.
 
 **Still to do.**
 
 1. With `OwnTransactions(false)` (gap 2, option B) and no caller transaction, assert the error is
    clear.
-2. A case where the nested save itself fails, not only the work after it, so gap 1's step 4 (mark
-   the outer state failed) is covered.
-3. Synchronous `SaveChanges` variants, beside `SyncSaveChangesTests`.
-4. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
-5. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
+2. Synchronous `SaveChanges` variants, beside `SyncSaveChangesTests`.
+3. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
+4. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
    `Accept-Language: ar`, they must write the base columns, store no base text as an Arabic
    translation, return the base text after a save under `ar`, and leave `CurrentLanguage`
    unchanged.

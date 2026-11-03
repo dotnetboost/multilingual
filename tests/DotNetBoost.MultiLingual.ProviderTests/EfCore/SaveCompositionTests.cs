@@ -53,6 +53,9 @@ internal sealed class FollowUpProbe
 
     public bool FailAfterFollowUp { get; set; }
 
+    /// <summary>Makes the follow-up save itself fail, on a NOT NULL column.</summary>
+    public bool FailTheFollowUpSave { get; set; }
+
     /// <summary>One entry per follow-up: whether a transaction was still open when it ran.</summary>
     public List<bool> RanInsideTransaction { get; } = [];
 }
@@ -95,7 +98,7 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
         try
         {
             probe.RanInsideTransaction.Add(context.Database.CurrentTransaction is not null);
-            context.Add(new FollowUpNote { Text = "follow-up" });
+            context.Add(new FollowUpNote { Text = probe.FailTheFollowUpSave ? null! : "follow-up" });
             await context.SaveChangesAsync(cancellationToken);
 
             if (probe.FailAfterFollowUp)
@@ -292,7 +295,6 @@ internal sealed class ComposedScope(AsyncServiceScope scope, Type contextType) :
 /// </summary>
 public sealed class SaveCompositionTests
 {
-    private const string Gap1 = "COMPOSITION-GAPS.md gap 1: a save nested inside ours resets the outer save's state.";
     private const string Gap2 = "COMPOSITION-GAPS.md gap 2: the owned transaction is committed before later interceptors run.";
     private const string Gap2Retrying =
         "COMPOSITION-GAPS.md gap 2: under a retrying strategy, an interceptor registered first completes after the strategy's commit.";
@@ -318,7 +320,7 @@ public sealed class SaveCompositionTests
     }
 
     [Theory]
-    [InlineData(FollowUpOrder.Before, false, Skip = Gap1)]
+    [InlineData(FollowUpOrder.Before, false)]
     [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
@@ -331,6 +333,25 @@ public sealed class SaveCompositionTests
         {
             scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
             await Assert.ThrowsAsync<FollowUpFailedException>(() => scope.Db.SaveChangesAsync());
+        }
+
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task FailureOfTheFollowUpSave_RollsBackEverything(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+        shop.Probe.FailTheFollowUpSave = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            await Assert.ThrowsAsync<DbUpdateException>(() => scope.Db.SaveChangesAsync());
         }
 
         Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
@@ -358,7 +379,7 @@ public sealed class SaveCompositionTests
     }
 
     [Theory]
-    [InlineData(FollowUpOrder.Before, false, Skip = Gap1)]
+    [InlineData(FollowUpOrder.Before, false)]
     [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true)]
     [InlineData(FollowUpOrder.After, true)]
@@ -482,5 +503,106 @@ public sealed class SaveCompositionTests
 
         Assert.Equal([true], shop.Probe.RanInsideTransaction);
         Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    // ----------------------------------------------------------------- recovery: saves EF never reports as failed
+
+    /// <summary>
+    /// An interceptor after ours whose <c>SavingChanges</c> throws: EF then reports no failure to
+    /// anyone, so this save never ends as far as the count knows. The next one must not be taken
+    /// for a save nested inside it.
+    /// </summary>
+    [Fact]
+    public async Task AfterALaterInterceptorRefusesASave_TheNextSave_StillWritesItsTranslations()
+    {
+        var refuse = new RefuseNextSave();
+        await using var shop  = await Shop.StartAsync(null, refuse);
+        await using var scope = await shop.ScopeInAsync("fr");
+
+        var product = new ShopProduct { Sku = "MOUSE", Name = "Souris" };
+        scope.Db.Products.Add(product);
+        refuse.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Db.SaveChangesAsync());
+
+        await scope.Db.SaveChangesAsync();
+
+        var row = Assert.Single(await shop.StoredTranslationsAsync());
+        Assert.Equal(("fr", "Souris"), (row.LanguageCode, row.Value));
+        Assert.Null(scope.Db.Database.CurrentTransaction);
+    }
+
+    /// <summary>The same, for a save that changes only translatable text: no entry EF tracks changes.</summary>
+    [Fact]
+    public async Task AfterALaterInterceptorRefusesATextOnlySave_TheNextSave_StillWritesItsTranslations()
+    {
+        var refuse = new RefuseNextSave();
+        await using var shop = await Shop.StartAsync(null, refuse);
+
+        int id;
+        await using (var seed = await shop.ScopeInAsync("en"))
+        {
+            var created = new ShopProduct { Sku = "MOUSE", Name = "Mouse" };
+            seed.Db.Products.Add(created);
+            await seed.Db.SaveChangesAsync();
+            id = created.Id;
+        }
+
+        await using var scope = await shop.ScopeInAsync("fr");
+        var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        product.Name = "Souris";
+        refuse.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Db.SaveChangesAsync());
+
+        await scope.Db.SaveChangesAsync();
+
+        Assert.Contains(await shop.StoredTranslationsAsync(), t => t is { LanguageCode: "fr", Value: "Souris" });
+        Assert.Null(scope.Db.Database.CurrentTransaction);
+    }
+
+    /// <summary>EF raises no <c>SaveChangesFailed</c> for a concurrency conflict: the transaction must not be left open.</summary>
+    [Fact]
+    public async Task AConcurrencyConflict_RollsBackTheOwnedTransaction_AndTheNextSaveWorks()
+    {
+        await using var shop = await Shop.StartAsync();
+        int id;
+        await using (var seed = await shop.ScopeInAsync("en"))
+        {
+            var created = new ShopProduct { Sku = "MOUSE", Name = "Mouse" };
+            seed.Db.Products.Add(created);
+            await seed.Db.SaveChangesAsync();
+            id = created.Id;
+        }
+
+        await using var scope = await shop.ScopeInAsync("fr");
+        var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        await scope.Db.Database.ExecuteSqlAsync($"DELETE FROM Products WHERE Id = {id}");
+
+        product.Price = 2;
+        product.Name  = "Souris";
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => scope.Db.SaveChangesAsync());
+        Assert.Null(scope.Db.Database.CurrentTransaction);
+
+        scope.Db.Entry(product).State = EntityState.Detached;
+        scope.Db.Products.Add(new ShopProduct { Sku = "KEYBOARD", Name = "Clavier" });
+        await scope.Db.SaveChangesAsync();
+
+        Assert.Contains(await shop.StoredTranslationsAsync(), t => t is { LanguageCode: "fr", Value: "Clavier" });
+        Assert.DoesNotContain(await shop.StoredTranslationsAsync(), t => t.Value == "Souris");
+    }
+}
+
+/// <summary>Refuses the next save from its <c>SavingChanges</c>, once armed.</summary>
+internal sealed class RefuseNextSave : SaveChangesInterceptor
+{
+    public bool Armed { get; set; }
+
+    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    {
+        if (!Armed)
+            return ValueTask.FromResult(result);
+
+        Armed = false;
+        throw new InvalidOperationException("Refused by a later interceptor.");
     }
 }
