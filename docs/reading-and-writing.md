@@ -182,6 +182,34 @@ Two differences from `For(entity)`:
   your own `[MultiLingual]` entities this way in that mode: its base-language values belong in its
   own columns, and a row written here for that language would be invisible to every query.
 
+### Storing text about another library's entity
+
+A subject's rows outlive the thing they describe unless something deletes them. No interceptor sees
+the other library's deletes, and `PurgeOrphanedTranslationsAsync` only checks the `[MultiLingual]`
+types in your model, so it never finds them. Text about a `MediaFile` that the media library
+deletes stays in `Translations` for good. So:
+
+1. **Name the subject once**, as a `const`, and use that everywhere. A typo files rows under a name
+   nothing reads or deletes, and nothing reports it.
+2. **Delete with the entity.** Register the owning library's delete notification (for
+   DotNetBoost.Media, `.OnFilesDeleted<T>()`) and remove the rows there, a whole batch in one
+   call:
+
+   ```csharp
+   public const string Subject = "MediaFile";
+
+   public sealed class MediaTextCleanup(IMultiLingualManager multiLingual) : IMediaFilesDeletedHandler
+   {
+       public Task OnDeletedAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default) =>
+           multiLingual.ForMany(Subject, ids.Cast<object>().ToList()).DeleteAsync(ct);
+   }
+   ```
+
+3. **Use the owning library's own id** for the entity, not one of your own, so the rows can always
+   be matched to what they describe.
+4. **No delete notification?** Delete the rows wherever your code deletes the entity, in the same
+   unit of work. Nothing cleans up after a delete you miss.
+
 To let clients do this over HTTP without writing the CRUD yourself, see
 [the translation endpoints](rest-api.md#the-translation-endpoints).
 
@@ -230,6 +258,7 @@ and only for entity names this context's model knows — a row under any other n
 another context sharing the table, or to a class renamed without fixing its entity name. Run it on
 a context with no pending translation changes, such as one from a fresh scope.
 
-It is EF Core only: it joins `Translations` against each entity's own table. On MongoDB, collect
+It does not cover [subjects](#storing-text-about-another-librarys-entity): they have no table it
+could join against. It is EF Core only: it joins `Translations` against each entity's own table. On MongoDB, collect
 the keys **before** deleting the documents and pass them to
 `ITranslationWriter.DeleteEntitiesAsync` — afterwards nothing knows what they were.

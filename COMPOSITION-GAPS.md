@@ -216,9 +216,12 @@ type.
    present in `Translations` that are neither a `[MultiLingual]` type nor a tracked subject, and
    logs one warning per name with the fix. Rows owned by another context sharing the table are
    legitimate (see the purge's own remarks), so let the check take a list of names to ignore.
-5. Add a checklist to `docs/translatable-content.md`, *Storing text about another library's
-   entity*: use a `const` subject name, register the owning library's delete hook, track the
-   subject so the purge covers it.
+5. ~~Add a checklist, *Storing text about another library's entity*~~ — done (unreleased), in
+   `docs/reading-and-writing.md` beside the subject API rather than in `translatable-content.md`,
+   which covers `[MultiLingual]` types. It says to use a `const` subject name, delete through the
+   owning library's hook (with the `ForMany(...).DeleteAsync()` example), and that the purge does
+   not cover subjects; the orphan section says so too. Once steps 1–2 ship, add "track the
+   subject" to it.
 
 ## 5. Tests beside another post-save interceptor (partly done)
 
@@ -231,12 +234,12 @@ product with an identity key, in both modes. Rows that fail today are skipped wi
 belong to, so each fix un-skips its own. The gap 1 rows pass now; the six still skipped are gap 2.
 The same file covers the failures EF never reports (gap 1, *What shipped*), a nested save that
 itself fails, `OwnTransactions(false)` (gap 2), and the documented application-owned transaction.
+`SyncSaveCompositionTests` runs the same cases through the synchronous `SaveChanges()`.
 
 **Still to do.**
 
-1. Synchronous `SaveChanges` variants, beside `SyncSaveChangesTests`.
-2. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
-3. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
+1. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
+2. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
    `Accept-Language: ar`, they must write the base columns, store no base text as an Arabic
    translation, return the base text after a save under `ar`, and leave `CurrentLanguage`
    unchanged.

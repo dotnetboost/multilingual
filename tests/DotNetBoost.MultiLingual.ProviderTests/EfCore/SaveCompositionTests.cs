@@ -53,6 +53,17 @@ public sealed class AppTransactionDbContext(DbContextOptions<AppTransactionDbCon
         await transaction.CommitAsync(cancellationToken);
         return saved;
     }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        if (Database.CurrentTransaction is not null || System.Transactions.Transaction.Current is not null)
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+
+        using var transaction = Database.BeginTransaction();
+        var saved = base.SaveChanges(acceptAllChangesOnSuccess);
+        transaction.Commit();
+        return saved;
+    }
 }
 
 /// <summary>Where the follow-up interceptor sits relative to <c>UseMultiLingual</c>.</summary>
@@ -93,31 +104,49 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
         DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
     {
-        if (!_following && eventData.Context is { } context && _depth++ == 0)
-        {
-            _captured = context.ChangeTracker.Entries<ShopProduct>()
-                .Any(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted);
-        }
-
+        Starting(eventData.Context);
         return ValueTask.FromResult(result);
+    }
+
+    public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+    {
+        Starting(eventData.Context);
+        return result;
     }
 
     public override async ValueTask<int> SavedChangesAsync(
         SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
     {
-        if (_following || eventData.Context is not { } context || --_depth > 0 || !_captured)
-            return result;
-
-        _captured = false;
-        if (!probe.Enabled)
+        if (Completing(eventData.Context) is not { } context)
             return result;
 
         _following = true;
         try
         {
-            probe.RanInsideTransaction.Add(context.Database.CurrentTransaction is not null);
-            context.Add(new FollowUpNote { Text = probe.FailTheFollowUpSave ? null! : "follow-up" });
+            AddNote(context);
             await context.SaveChangesAsync(cancellationToken);
+
+            if (probe.FailAfterFollowUp)
+                throw new FollowUpFailedException();
+        }
+        finally
+        {
+            _following = false;
+        }
+
+        return result;
+    }
+
+    public override int SavedChanges(SaveChangesCompletedEventData eventData, int result)
+    {
+        if (Completing(eventData.Context) is not { } context)
+            return result;
+
+        _following = true;
+        try
+        {
+            AddNote(context);
+            context.SaveChanges();
 
             if (probe.FailAfterFollowUp)
                 throw new FollowUpFailedException();
@@ -132,10 +161,41 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
 
     public override Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
     {
+        Failed();
+        return Task.CompletedTask;
+    }
+
+    public override void SaveChangesFailed(DbContextErrorEventData eventData) => Failed();
+
+    private void Starting(DbContext? context)
+    {
+        if (!_following && context is not null && _depth++ == 0)
+        {
+            _captured = context.ChangeTracker.Entries<ShopProduct>()
+                .Any(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted);
+        }
+    }
+
+    /// <summary>The context to follow up on, when the outermost save that changed a product just completed.</summary>
+    private DbContext? Completing(DbContext? context)
+    {
+        if (_following || context is null || --_depth > 0 || !_captured)
+            return null;
+
+        _captured = false;
+        return probe.Enabled ? context : null;
+    }
+
+    private void AddNote(DbContext context)
+    {
+        probe.RanInsideTransaction.Add(context.Database.CurrentTransaction is not null);
+        context.Add(new FollowUpNote { Text = probe.FailTheFollowUpSave ? null! : "follow-up" });
+    }
+
+    private void Failed()
+    {
         if (!_following && _depth > 0 && --_depth == 0)
             _captured = false;
-
-        return Task.CompletedTask;
     }
 }
 
@@ -340,8 +400,8 @@ internal sealed class ComposedScope(AsyncServiceScope scope, Type contextType) :
 /// </summary>
 public sealed class SaveCompositionTests
 {
-    private const string Gap2 = "COMPOSITION-GAPS.md gap 2: the owned transaction is committed before later interceptors run.";
-    private const string Gap2Retrying =
+    internal const string Gap2 = "COMPOSITION-GAPS.md gap 2: the owned transaction is committed before later interceptors run.";
+    internal const string Gap2Retrying =
         "COMPOSITION-GAPS.md gap 2: under a retrying strategy, an interceptor registered first completes after the strategy's commit.";
 
     // ----------------------------------------------------------------- transaction
@@ -746,5 +806,192 @@ internal sealed class RefuseNextSave : SaveChangesInterceptor
 
         Armed = false;
         throw new InvalidOperationException("Refused by a later interceptor.");
+    }
+
+    public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+    {
+        if (!Armed)
+            return result;
+
+        Armed = false;
+        throw new InvalidOperationException("Refused by a later interceptor.");
+    }
+}
+
+/// <summary>
+/// The synchronous save beside the follow-up interceptor. The save interceptor has a synchronous
+/// member for every step, so each composition and recovery case runs again through <c>SaveChanges()</c>.
+/// </summary>
+public sealed class SyncSaveCompositionTests
+{
+    private const string Gap2 = SaveCompositionTests.Gap2;
+    private const string Gap2Retrying = SaveCompositionTests.Gap2Retrying;
+
+    private static ShopProduct Mouse() => new() { Sku = "MOUSE", Price = 1, Name = "Souris" };
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task Create_RunsTheFollowUpInsideTheTransaction(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(Mouse());
+            scope.Db.SaveChanges();
+        }
+
+        Assert.Equal([true], shop.Probe.RanInsideTransaction);
+        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task FailureAfterTheFollowUp_RollsBackEverything(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+        shop.Probe.FailAfterFollowUp = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(Mouse());
+            Assert.Throws<FollowUpFailedException>(() => scope.Db.SaveChanges());
+        }
+
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task FailureOfTheFollowUpSave_RollsBackEverything(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+        shop.Probe.FailTheFollowUpSave = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(Mouse());
+            Assert.Throws<DbUpdateException>(() => scope.Db.SaveChanges());
+        }
+
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false)]
+    [InlineData(FollowUpOrder.Before, true)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task Delete_RemovesTheTranslations(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+        var id = await shop.SeedProductAsync("Laptop", ("fr", "Ordinateur"));
+
+        await using (var scope = shop.Scope())
+        {
+            scope.Db.Products.Remove(await scope.Db.Products.SingleAsync(p => p.Id == id));
+            scope.Db.SaveChanges();
+        }
+
+        Assert.Empty(await shop.StoredNamesAsync());
+        Assert.Equal((0, 0, 1), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false)]
+    [InlineData(FollowUpOrder.Before, true)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task OwnTransactionsOff_WithoutACallerTransaction_RefusesTheSave_BeforeWritingAnything(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying, ownTransactions: false);
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(Mouse());
+            var ex = Assert.Throws<InvalidOperationException>(() => scope.Db.SaveChanges());
+
+            Assert.Contains("OwnTransactions(false)", ex.Message, StringComparison.Ordinal);
+            Assert.Null(scope.Db.Database.CurrentTransaction);
+        }
+
+        Assert.Empty(shop.Probe.RanInsideTransaction);
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before)]
+    [InlineData(FollowUpOrder.After)]
+    public async Task TheDocumentedAppTransaction_RollsBackEverything(FollowUpOrder order)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying: false, ownTransactions: false, appTransactions: true);
+        shop.Probe.FailAfterFollowUp = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(Mouse());
+            Assert.Throws<FollowUpFailedException>(() => scope.Db.SaveChanges());
+        }
+
+        Assert.Equal([true], shop.Probe.RanInsideTransaction);
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Fact]
+    public async Task AfterALaterInterceptorRefusesASave_TheNextSave_StillWritesItsTranslations()
+    {
+        var refuse = new RefuseNextSave();
+        await using var shop  = await Shop.StartAsync(null, refuse);
+        await using var scope = await shop.ScopeInAsync("fr");
+
+        scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Name = "Souris" });
+        refuse.Armed = true;
+        Assert.Throws<InvalidOperationException>(() => scope.Db.SaveChanges());
+
+        scope.Db.SaveChanges();
+
+        var row = Assert.Single(await shop.StoredTranslationsAsync());
+        Assert.Equal(("fr", "Souris"), (row.LanguageCode, row.Value));
+        Assert.Null(scope.Db.Database.CurrentTransaction);
+    }
+
+    [Fact]
+    public async Task AConcurrencyConflict_RollsBackTheOwnedTransaction_AndTheNextSaveWorks()
+    {
+        await using var shop = await Shop.StartAsync();
+        int id;
+        await using (var seed = await shop.ScopeInAsync("en"))
+        {
+            var created = new ShopProduct { Sku = "MOUSE", Name = "Mouse" };
+            seed.Db.Products.Add(created);
+            await seed.Db.SaveChangesAsync();
+            id = created.Id;
+        }
+
+        await using var scope = await shop.ScopeInAsync("fr");
+        var product = await scope.Db.Products.SingleAsync(p => p.Id == id);
+        await scope.Db.Database.ExecuteSqlAsync($"DELETE FROM Products WHERE Id = {id}");
+
+        product.Price = 2;
+        product.Name  = "Souris";
+        Assert.Throws<DbUpdateConcurrencyException>(() => scope.Db.SaveChanges());
+        Assert.Null(scope.Db.Database.CurrentTransaction);
+
+        scope.Db.Entry(product).State = EntityState.Detached;
+        scope.Db.Products.Add(new ShopProduct { Sku = "KEYBOARD", Name = "Clavier" });
+        scope.Db.SaveChanges();
+
+        Assert.Contains(await shop.StoredTranslationsAsync(), t => t is { LanguageCode: "fr", Value: "Clavier" });
+        Assert.DoesNotContain(await shop.StoredTranslationsAsync(), t => t.Value == "Souris");
     }
 }

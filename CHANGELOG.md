@@ -18,6 +18,9 @@ All notable changes to this project are documented here. The format follows
   `SaveChanges`, or, under a retrying strategy, register `UseMultiLingual` before the other
   interceptors. It also says why EF's usual `acceptAllChangesOnSuccess: false` retry pattern breaks
   beside an interceptor that saves again.
+- **[Storing text about another library's entity](docs/reading-and-writing.md#storing-text-about-another-librarys-entity).**
+  A checklist for subjects: nothing deletes their rows unless the application does, and
+  `PurgeOrphanedTranslationsAsync` does not cover them.
 
 ### Fixed
 - **A save issued by another interceptor from inside ours no longer wipes ours.** An interceptor
