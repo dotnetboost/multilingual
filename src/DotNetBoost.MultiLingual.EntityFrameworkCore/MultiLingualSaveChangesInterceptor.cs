@@ -27,7 +27,9 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 ///
 /// <para><b>Atomicity.</b> If the caller has no transaction open, this interceptor opens one
 /// before the primary save and commits it only once the translation rows are in. A failure
-/// anywhere rolls the entity and its translations back together.</para>
+/// anywhere rolls the entity and its translations back together. When another
+/// <c>SaveChanges</c> interceptor is registered after this one, the commit waits until that one's
+/// post-save work is done as well; see <see cref="DeferCommit"/>.</para>
 ///
 /// <para><b>Retrying execution strategies.</b> A strategy such as <c>EnableRetryOnFailure</c>
 /// refuses a transaction it did not start, because it could not replay it. So when one is
@@ -72,6 +74,9 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     private MultiLingualOptions? _options;
     private MultiLingualOptions Options => _options ??= services.GetRequiredService<MultiLingualOptions>();
 
+    private EfCoreSaveOptions? _saveOptions;
+    private EfCoreSaveOptions SaveOptions => _saveOptions ??= services.GetService<EfCoreSaveOptions>() ?? new EfCoreSaveOptions();
+
     // Scoped, and read fresh: the language is resolved after this interceptor is constructed.
     private ILanguageContext LanguageContext => services.GetRequiredService<ILanguageContext>();
 
@@ -85,14 +90,22 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (eventData.Context is not { } context)
             return result;
 
-        if (!result.HasResult && NeedsRetryingSave(context))
+        if (!result.HasResult && SaveOptions.OwnTransactions && !IsNested(context) && NeedsRetryingSave(context))
             return InterceptionResult<int>.SuppressWithResult(await SaveUnderStrategyAsync(context, cancellationToken));
 
         if (Begin(context) is not { } state)
             return result;
 
-        if (NeedsOwnTransaction(context, state))
-            state.OwnedTransaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            if (NeedsOwnTransaction(context, state))
+                state.OwnedTransaction = await BeginOwnedTransactionAsync(context, cancellationToken);
+        }
+        catch
+        {
+            Abandon(context, state);
+            throw;
+        }
 
         return result;
     }
@@ -104,14 +117,22 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (eventData.Context is not { } context)
             return result;
 
-        if (!result.HasResult && NeedsRetryingSave(context))
+        if (!result.HasResult && SaveOptions.OwnTransactions && !IsNested(context) && NeedsRetryingSave(context))
             return InterceptionResult<int>.SuppressWithResult(SaveUnderStrategy(context));
 
         if (Begin(context) is not { } state)
             return result;
 
-        if (NeedsOwnTransaction(context, state))
-            state.OwnedTransaction = context.Database.BeginTransaction();
+        try
+        {
+            if (NeedsOwnTransaction(context, state))
+                state.OwnedTransaction = BeginOwnedTransaction(context);
+        }
+        catch
+        {
+            Abandon(context, state);
+            throw;
+        }
 
         return result;
     }
@@ -126,6 +147,12 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (eventData.Context is not { } context || !_states.TryGetValue(context, out var state) || state.IsApplying)
             return result;
 
+        if (!Leave(state))
+        {
+            NoteNestedSaveCompleted(state);
+            return result;
+        }
+
         if (!state.HasWork)
         {
             await CommitOwnedTransactionAsync(state, cancellationToken);
@@ -133,6 +160,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         }
 
         state.IsApplying = true;
+        var deferred = false;
         try
         {
             var (writer, deletes, writes) = PrepareApply(context, state);
@@ -144,8 +172,15 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             // before a commit that then fails would make the retry believe they were stored.
             await writer.WriteAsync(WithoutSources(writes), cancellationToken);
 
-            await CommitOwnedTransactionAsync(state, cancellationToken);
-            Complete(state, writes);
+            if (DeferCommit(context, state, writes))
+            {
+                deferred = true;
+            }
+            else
+            {
+                await CommitOwnedTransactionAsync(state, cancellationToken);
+                Complete(state, writes);
+            }
         }
         catch
         {
@@ -156,7 +191,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         finally
         {
             state.IsApplying = false;
-            state.Reset();
+            if (deferred)
+                state.ClearPending();
+            else
+                state.Reset();
         }
 
         return result;
@@ -175,6 +213,12 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (eventData.Context is not { } context || !_states.TryGetValue(context, out var state) || state.IsApplying)
             return result;
 
+        if (!Leave(state))
+        {
+            NoteNestedSaveCompleted(state);
+            return result;
+        }
+
         if (!state.HasWork)
         {
             CommitOwnedTransaction(state);
@@ -182,6 +226,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         }
 
         state.IsApplying = true;
+        var deferred = false;
         try
         {
             var (writer, deletes, writes) = PrepareApply(context, state);
@@ -191,8 +236,15 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
 
             writer.Write(WithoutSources(writes));
 
-            CommitOwnedTransaction(state);
-            Complete(state, writes);
+            if (DeferCommit(context, state, writes))
+            {
+                deferred = true;
+            }
+            else
+            {
+                CommitOwnedTransaction(state);
+                Complete(state, writes);
+            }
         }
         catch
         {
@@ -203,7 +255,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         finally
         {
             state.IsApplying = false;
-            state.Reset();
+            if (deferred)
+                state.ClearPending();
+            else
+                state.Reset();
         }
 
         return result;
@@ -253,12 +308,71 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     }
 
     /// <inheritdoc/>
-    public override async Task SaveChangesFailedAsync(
+    public override Task SaveChangesFailedAsync(
         DbContextErrorEventData eventData,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(eventData);
-        if (eventData.Context is not { } context || !_states.TryGetValue(context, out var state) || state.IsApplying)
+        return FailedAsync(eventData.Context);
+    }
+
+    /// <inheritdoc/>
+    public override void SaveChangesFailed(DbContextErrorEventData eventData)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        Failed(eventData.Context);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>EF raises this instead of <c>SaveChangesFailed</c> for a cancelled save.</remarks>
+    public override Task SaveChangesCanceledAsync(DbContextEventData eventData, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        return FailedAsync(eventData.Context);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>EF raises this instead of <c>SaveChangesFailed</c> for a cancelled save.</remarks>
+    public override void SaveChangesCanceled(DbContextEventData eventData)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        Failed(eventData.Context);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// EF raises this instead of <c>SaveChangesFailed</c> for a concurrency conflict, just before
+    /// it throws — unless an interceptor suppresses the exception, and then the save goes on.
+    /// </remarks>
+    public override async ValueTask<InterceptionResult> ThrowingConcurrencyExceptionAsync(
+        ConcurrencyExceptionEventData eventData,
+        InterceptionResult result,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        if (!result.IsSuppressed)
+            await FailedAsync(eventData.Context);
+
+        return result;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// EF raises this instead of <c>SaveChangesFailed</c> for a concurrency conflict, just before
+    /// it throws — unless an interceptor suppresses the exception, and then the save goes on.
+    /// </remarks>
+    public override InterceptionResult ThrowingConcurrencyException(ConcurrencyExceptionEventData eventData, InterceptionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+        if (!result.IsSuppressed)
+            Failed(eventData.Context);
+
+        return result;
+    }
+
+    private async Task FailedAsync(DbContext? context)
+    {
+        if (context is null || !_states.TryGetValue(context, out var state) || state.IsApplying || !LeaveFailed(state))
             return;
 
         await RollbackOwnedTransactionAsync(state);
@@ -269,11 +383,9 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         state.Reset();
     }
 
-    /// <inheritdoc/>
-    public override void SaveChangesFailed(DbContextErrorEventData eventData)
+    private void Failed(DbContext? context)
     {
-        ArgumentNullException.ThrowIfNull(eventData);
-        if (eventData.Context is not { } context || !_states.TryGetValue(context, out var state) || state.IsApplying)
+        if (context is null || !_states.TryGetValue(context, out var state) || state.IsApplying || !LeaveFailed(state))
             return;
 
         RollbackOwnedTransaction(state);
@@ -283,7 +395,18 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
 
     // ------------------------------------------------------------------ collect
 
-    /// <summary>Captures the pending work, or returns null when this save is our own nested one.</summary>
+    /// <summary>
+    /// Captures the pending work. Returns null when this save is our own nested one, or when it is
+    /// nested inside a save of ours still in flight — another interceptor saving from its
+    /// <c>SavedChanges</c> — whose work then joins the outer save's.
+    /// <para>
+    /// <b>Why nesting is counted.</b> An interceptor registered before this one runs its
+    /// <c>SavedChanges</c> before ours. A save it issues there would otherwise start over: forget
+    /// the outer save's pending deletes (their entries are detached by now), drop its snapshot, and
+    /// commit its transaction from the inside. Counted, the nested save only adds work, and only the
+    /// outermost completion writes, commits or rolls back.
+    /// </para>
+    /// </summary>
     private SaveState? Begin(DbContext context)
     {
         var state = _states.GetOrCreateValue(context);
@@ -292,17 +415,57 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         if (state.IsApplying)
             return null;
 
+        if (IsNested(state))
+        {
+            state.Depth++;
+            try
+            {
+                Capture(context, state, context.ChangeTracker.Entries().ToList());
+            }
+            catch
+            {
+                state.Depth--;
+                throw;
+            }
+
+            return null;
+        }
+
         state.Reset();
+        state.Depth = 1;
 
-        var entries = context.ChangeTracker.Entries().ToList();
-        if (!entries.Exists(e => MultiLingualMetadata.IsMultiLingual(e.Metadata.ClrType)))
+        try
+        {
+            var entries = context.ChangeTracker.Entries().ToList();
+            state.Changed.AddRange(entries
+                .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+                .Select(e => (e, e.State)));
+
+            if (!entries.Exists(e => MultiLingualMetadata.IsMultiLingual(e.Metadata.ClrType)))
+                return state;
+
+            // Before ApplyBaseLanguageRules touches anything. Only relational saves run inside a
+            // transaction, so only there does a failure mean the database never saw the changes.
+            if (context.Database.IsRelational())
+                state.Snapshot = TrackerSnapshot.Take(entries);
+
+            Capture(context, state, entries);
+
+            if (!state.HasWork)
+                state.Snapshot = null;
+
             return state;
+        }
+        catch
+        {
+            Abandon(context, state);
+            throw;
+        }
+    }
 
-        // Before ApplyBaseLanguageRules touches anything. Only relational saves run inside a
-        // transaction, so only there does a failure mean the database never saw the changes.
-        if (context.Database.IsRelational())
-            state.Snapshot = TrackerSnapshot.Take(entries);
-
+    /// <summary>Adds the translation work in <paramref name="entries"/> that is not pending already.</summary>
+    private void Capture(DbContext context, SaveState state, List<EntityEntry> entries)
+    {
         foreach (var entry in entries)
         {
             var clrType = entry.Metadata.ClrType;
@@ -317,13 +480,21 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             {
                 case EntityState.Deleted:
                     // The key is still readable here; after SaveChanges the entry is detached.
-                    if (EntityKeys.TryGetKey(entry) is { } key)
+                    if (EntityKeys.TryGetKey(entry) is { } key && !state.Deletes.Contains(new PendingDelete(entityName, key)))
                         state.Deletes.Add(new PendingDelete(entityName, key));
                     break;
 
                 case EntityState.Added:
                 case EntityState.Modified:
                 case EntityState.Unchanged:
+                    // A nested save sees the outer save's entries again, accepted by now — pending,
+                    // or already written while a deferred commit waits.
+                    if (state.Writes.Exists(w => ReferenceEquals(w.Entry.Entity, entry.Entity))
+                        || state.Applied.Exists(w => ReferenceEquals(w.Source, entry.Entity)))
+                    {
+                        break;
+                    }
+
                     if (entry.State == EntityState.Added)
                         RequireBaseLanguageOnCreate(entityName);
                     else
@@ -337,11 +508,59 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
                     break;
             }
         }
+    }
 
-        if (!state.HasWork)
-            state.Snapshot = null;
+    private bool IsNested(DbContext context) => _states.TryGetValue(context, out var state) && IsNested(state);
 
-        return state;
+    /// <summary>
+    /// True when a save starting now is nested inside an outer save of ours: one is in flight, and
+    /// EF has already saved and accepted its changes — the only moment another interceptor can
+    /// save from inside it. Anything else is an outer save that never completed (EF raises no
+    /// <c>SaveChangesFailed</c> when an interceptor's <c>SavingChanges</c> throws), and the new save
+    /// starts over, as it would have without the count.
+    /// <para>
+    /// An outer save that changed no entry EF tracks — only unmapped translatable properties — gives
+    /// nothing to tell the two apart by, so it is treated as completed too.
+    /// </para>
+    /// </summary>
+    private static bool IsNested(SaveState state) =>
+        state.CommitPending
+        || state.Depth > 0
+        && state.Changed.Count > 0
+        && state.Changed.TrueForAll(c => c.Entry.State == (c.State == EntityState.Deleted ? EntityState.Detached : EntityState.Unchanged));
+
+    /// <summary>
+    /// Ends one save that completed; true when it was the outermost, which does the work. A save at
+    /// depth 0 is one whose <c>SavingChanges</c> this interceptor suppressed, having already run it
+    /// under the retrying strategy.
+    /// </summary>
+    private static bool Leave(SaveState state) => state.Depth > 0 && --state.Depth == 0;
+
+    /// <summary>
+    /// Ends one save that failed; true when it was the outermost, which rolls back. A nested save's
+    /// failure is reported to whoever issued it, and the outer save goes on as that caller decides.
+    /// </summary>
+    private static bool LeaveFailed(SaveState state)
+    {
+        if (state.Depth > 1)
+        {
+            state.Depth--;
+            return false;
+        }
+
+        state.Depth = 0;
+        return true;
+    }
+
+    /// <summary>
+    /// Ends a save refused in <c>SavingChanges</c>. EF raises no <c>SaveChangesFailed</c> for it, so
+    /// nothing else would put back what <c>ApplyBaseLanguageRules</c> adjusted, or end this save.
+    /// </summary>
+    private static void Abandon(DbContext context, SaveState state)
+    {
+        state.Snapshot?.Restore(context);
+        state.Depth = 0;
+        state.Reset();
     }
 
     /// <summary>
@@ -454,6 +673,35 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             Manager.MarkAsBaseLanguageValues(entry.Entity, untouched);
     }
 
+    private Task<IDbContextTransaction> BeginOwnedTransactionAsync(DbContext context, CancellationToken ct)
+    {
+        EnsureMayOwnTransaction();
+        return context.Database.BeginTransactionAsync(ct);
+    }
+
+    private IDbContextTransaction BeginOwnedTransaction(DbContext context)
+    {
+        EnsureMayOwnTransaction();
+        return context.Database.BeginTransaction();
+    }
+
+    /// <summary>
+    /// With <c>OwnTransactions(false)</c>, a save that writes translations without a transaction of
+    /// the caller's is refused before anything reaches the database, rather than written in pieces.
+    /// </summary>
+    private void EnsureMayOwnTransaction()
+    {
+        if (SaveOptions.OwnTransactions)
+            return;
+
+        throw new InvalidOperationException(
+            "This save writes translations and no transaction is open, and OwnTransactions(false) " +
+            "leaves opening one to the application. Open one around SaveChanges, for instance in a " +
+            "SaveChangesAsync override; under a retrying execution strategy, keep OwnTransactions on " +
+            "and register UseMultiLingual before the other interceptors instead. See 'Sharing a " +
+            "DbContext with other SaveChanges interceptors' in docs/limitations.md.");
+    }
+
     private static bool NeedsOwnTransaction(DbContext context, SaveState state) =>
         state.HasWork
         && context.Database.IsRelational()
@@ -535,6 +783,30 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         public TrackerSnapshot? Snapshot { get; set; }
         public bool IsApplying { get; set; }
 
+        /// <summary>
+        /// How many saves of this context are in flight, the translation store's own excluded;
+        /// survives <see cref="Reset"/>.
+        /// </summary>
+        public int Depth { get; set; }
+
+        /// <summary>Every entry the outermost save changed, and how: what <see cref="IsNested(SaveState)"/> checks.</summary>
+        public List<(EntityEntry Entry, EntityState State)> Changed { get; } = [];
+
+        /// <summary>
+        /// Set when the owned transaction waits for EF's <c>SavedChanges</c> event, because another
+        /// interceptor still has its <c>SavedChanges</c> to run. See <see cref="DeferCommit"/>.
+        /// </summary>
+        public bool CommitPending { get; set; }
+
+        /// <summary>Saves nested in the pending window that completed, whose own event comes first.</summary>
+        public int NestedSavesAwaitingEvent { get; set; }
+
+        /// <summary>Writes stored, to complete once the deferred commit succeeds.</summary>
+        public List<TranslationWrite> Applied { get; } = [];
+
+        /// <summary>Whether this interceptor listens to the context's <c>SavedChanges</c> event.</summary>
+        public bool ListensToSavedChanges { get; set; }
+
         /// <summary>Set while a retrying strategy owns the transaction; survives <see cref="Reset"/>.</summary>
         public bool DeferCompletion { get; set; }
 
@@ -542,11 +814,22 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         public List<TranslationWrite> Deferred { get; } = [];
         public bool HasWork => Writes.Count > 0 || Deletes.Count > 0;
 
+        /// <summary>Forgets the work already applied, and keeps everything a deferred commit still needs.</summary>
+        public void ClearPending()
+        {
+            Writes.Clear();
+            Deletes.Clear();
+        }
+
         public void Reset()
         {
             Writes.Clear();
             Deletes.Clear();
             Snapshot = null;
+            Changed.Clear();
+            CommitPending = false;
+            NestedSavesAwaitingEvent = 0;
+            Applied.Clear();
         }
     }
 
