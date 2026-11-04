@@ -46,7 +46,9 @@ public sealed class ProductsController(
 | know the request's language | `multiLingual.CurrentLanguage`, `DefaultLanguage`, `IsLanguageResolved`, `WasRequestedLanguageHonoured` |
 | set it outside a request (jobs, seeders) | `await multiLingual.UseLanguageAsync("ar")` |
 | read every stored language of an entity | `await multiLingual.For(product).GetAllAsync()` |
+| read every language for an editor, the base one included | `await multiLingual.For(product).GetAllAsync(includeBase: true)` — see [editing every language at once](base-language.md#editing-every-language-at-once) |
 | add or change a translation in another language | `multiLingual.For(product).Set("fr", p => p.Name, "Chaise")` |
+| write every language an editor sent, at once | `multiLingual.For(product).SetAll(request.Languages)` |
 | remove a translation | `multiLingual.For(product).Clear("fr")` — or `Clear("fr", p => p.Name)` |
 | find or administer languages | `multiLingual.Languages.FindAsync("ar")`, `CreateAsync(…)`, `SetDefaultAsync(…)`, `IsBaseLanguage(…)`, … |
 | fill translated properties yourself (Dapper, MongoDB) | `await multiLingual.LocalizeAsync(products)` |
@@ -77,6 +79,8 @@ Only the languages that are actually stored as rows are fetched, in one query pe
 `GetAllAsync()` returns every stored translation of one entity as
 `languageCode → (propertyName → value)`, with no fallback and no merging — it is what is in the
 table. In base-language mode the base language is not among them: it is the entity's own columns.
+`GetAllAsync(includeBase: true)` adds it, read from those columns; see
+[editing every language at once](base-language.md#editing-every-language-at-once).
 
 ## The write path
 

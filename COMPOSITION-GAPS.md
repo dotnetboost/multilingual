@@ -118,59 +118,37 @@ repo's `COMPOSITION-GAPS.md`, gap 2). Only the upsert path does this: deletes al
 entries: through a library-owned context with no interceptors, on the caller's connection and
 transaction. Then no other library ever sees this one's follow-up write.
 
-## 3. No way to write or read "all languages, base included"
+## 3. No way to write or read "all languages, base included" — fixed, unreleased
 
-**What goes wrong.** In base-language mode, `ITranslationAccessor<T>.Set(baseCode, ...)` throws
-`BaseLanguageNotTranslatableException` (`MultiLingualManager.cs`, `TranslationAccessor.Translatable`),
-and `GetAllAsync` returns every language except the base one. An editor that sends every language
-at once therefore has to:
+**Fixed** with `ITranslationAccessor<T>.SetAll(byLanguage)` and `GetAllAsync(includeBase: true)`
+(see `CHANGELOG.md`, *Unreleased*, and *Editing every language at once* in `docs/base-language.md`).
+Delete this entry once that ships, after the sample's `TranslatedText.cs` drops its
+`UseLanguageAsync` detour for them.
 
-- assign the base values to the properties itself,
-- switch the scope to the base language with `UseLanguageAsync` for the save, so the interceptor
-  writes the columns instead of a translation,
-- switch back in a `finally`, because localized messages read `CurrentLanguage`,
-- put the base values back into the read result itself.
+**What went wrong.** In base-language mode `Set(baseCode, …)` throws and `GetAllAsync` leaves the
+base language out, so an editor sending every language at once had to switch the request's
+language to the base one around the save and back in a `finally`, and put the base values into
+the read result itself.
 
-That is the sample's `TranslatedText.cs`. It is global per-request state, and the most delicate
-code in the application.
+**How the two traps were handled.**
 
-**Fix.**
+1. **Base text filed as the current language.** `SetAll` marks each base value it assigns
+   (`HydratedValueTracker.MarkBaseAuthored`). The mark is read in both places that would otherwise
+   take the property for the current language: `CaptureValues` sees it as on loan from the base
+   language and skips it, and `ApplyBaseLanguageRules` leaves the column in the `UPDATE`. It
+   holds only while the property still has that value, so a later direct edit is the current
+   language's again. `RememberPersisted` no longer marks a property with a staged value it does not
+   hold, which had made the second save of an entity after `SetAll` write the base text again.
+2. **EF's original values.** Not used. Under EF Core, `GetAllAsync(includeBase: true)` reads the
+   columns with a query of its own, by key, around the translation machinery
+   (`EfCoreBaseColumnReader`, behind `IBaseColumnReader`). Without a change tracker, the engine
+   answers what each property held before its first serve, remembered then, or what `SetAll`
+   assigned.
 
-1. Add `ITranslationAccessor<T>.SetAll(IReadOnlyDictionary<string, IReadOnlyDictionary<string,
-   string?>> byLanguage)`:
-   - Non-base languages are queued like `Set`.
-   - Base-language values are assigned to the properties and recorded in the engine as
-     **base-authored**, so the interceptor writes them to the columns whatever `CurrentLanguage` is.
-   - The base-authored mark must be honoured in **two** places. In `ApplyBaseLanguageRules`, so the
-     column is not excluded from the UPDATE. And in `CaptureValues`, which otherwise treats every
-     in-memory property value as text in the current language: under `ar`, a base value with no
-     Arabic value for the same property would also be stored as the Arabic translation.
-   - Base-language values are checked against `MultiLingualMetadata` the same way `Set` checks
-     names, so an unknown property is refused identically in both modes.
-   - `null` for a base value becomes `string.Empty` (the columns are NOT NULL). Document it.
-2. Let the create rule ("an entity can only be created in the base language") accept an entity
-   whose base values were assigned through `SetAll`, instead of checking `CurrentLanguage` only.
-3. Add `GetAllAsync(includeBase: true)` (or `GetAllWithBaseAsync`). Where the base value comes
-   from needs care:
-   - Not EF's original values. They hold the column after a read (tracking starts before
-     `EntityFill` serves the translation), but `ApplyBaseLanguageRules` sets
-     `OriginalValue = CurrentValue`, and a save under `ar` accepts the Arabic text as original. In
-     both cases the "base" read back would be Arabic.
-   - Instead, have the engine remember the base value per entity, in the tracker: the column value
-     as materialized (`EntityFill.Record` already captures it, before the fill), updated when a save
-     writes the base column. This also keeps `TranslationAccessor`, which lives in Core and serves
-     Dapper and MongoDB too, free of EF types.
-   - With nothing remembered (a detached entity), read the row with `IgnoreTranslations()` or the
-     provider's equivalent.
-   - Return a case-insensitive map.
-4. Make both methods inert outside base-language mode: `includeBase` adds nothing, and `SetAll` is
-   `Set` per language.
-5. Document both in `docs/base-language.md`, with an editor example that never calls
-   `UseLanguageAsync`. Note that after `SetAll` under `ar` the in-memory properties hold the base
-   text, so a response built from the entity shows the base language.
-
-**Workaround today (sample side).** The read half can drop the language switch now with
-`query.InLanguage(baseCode)`. Only the write still needs it.
+The create rule accepts an entity whose every translatable value came from `SetAll`. `null` for a
+base value becomes the empty string. Each safeguard was checked by breaking it: the tests that pin
+it fail, in `ProviderTests/EfCore/AllLanguagesTests` and `UnitTests/AllLanguagesTests`; the editor
+round trip also runs on PostgreSQL and SQL Server.
 
 ## 4. Text stored about another library's entity is never cleaned up
 
@@ -228,7 +206,4 @@ nested failure.
 
 **Still to do.**
 
-1. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
-   `Accept-Language: ar`, they must write the base columns, store no base text as an Arabic
-   translation, return the base text after a save under `ar`, and leave `CurrentLanguage`
-   unchanged.
+Nothing. The `SetAll` / `GetAllAsync(includeBase: true)` tests came with gap 3.

@@ -16,7 +16,9 @@ internal sealed class MultiLingualManager(
     ILanguageCatalog catalog,
     ILanguageManager languageManager,
     ITranslationManager translations,
-    MultiLingualOptions options) : IMultiLingualManager
+    TranslationManager engine,
+    MultiLingualOptions options,
+    IBaseColumnReader? baseColumns = null) : IMultiLingualManager
 {
     private ILanguageAccessor? _languages;
 
@@ -43,7 +45,7 @@ internal sealed class MultiLingualManager(
                 $"'{entity.GetType().Name}' has no [MultiLingual] properties, so it has no translations.", nameof(entity));
         }
 
-        return new TranslationAccessor<T>(entity, translations, catalog, options);
+        return new TranslationAccessor<T>(entity, translations, engine, catalog, options, baseColumns);
     }
 
     public ITranslationSubject For(string entityName, object entityId)
@@ -143,14 +145,38 @@ internal sealed class LanguageAccessor(
 internal sealed class TranslationAccessor<T>(
     T entity,
     ITranslationManager translations,
+    TranslationManager engine,
     ILanguageCatalog catalog,
-    MultiLingualOptions options) : ITranslationAccessor<T>
+    MultiLingualOptions options,
+    IBaseColumnReader? baseColumns) : ITranslationAccessor<T>
     where T : class
 {
     public T Entity => entity;
 
     public Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(CancellationToken ct = default) =>
         translations.GetAllAsync(entity, ct);
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(
+        bool includeBase, CancellationToken ct = default)
+    {
+        var stored = await translations.GetAllAsync(entity, ct);
+        if (!includeBase || options.BaseLanguage is not { } baseLanguage)
+            return stored;
+
+        // An entity without a key has nothing stored, the base language included.
+        if (engine.HasNoKey(entity))
+            return stored;
+
+        var baseValues = (baseColumns is not null ? await baseColumns.ReadAsync(entity, ct) : null)
+                         ?? engine.KnownBaseValues(entity);
+
+        var all = new Dictionary<string, IReadOnlyDictionary<string, string?>>(stored, StringComparer.OrdinalIgnoreCase)
+        {
+            [baseLanguage] = baseValues
+        };
+
+        return all;
+    }
 
     public Task LocalizeAsync(CancellationToken ct = default) => translations.HydrateAsync([entity], ct);
 
@@ -165,6 +191,44 @@ internal sealed class TranslationAccessor<T>(
         ArgumentNullException.ThrowIfNull(values);
 
         translations.Stage(entity, Translatable(languageCode), values);
+        return this;
+    }
+
+    public ITranslationAccessor<T> SetAll(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> byLanguage)
+    {
+        ArgumentNullException.ThrowIfNull(byLanguage);
+
+        // All of it checked first, so a bad entry anywhere queues nothing.
+        var translatable = MultiLingualMetadata.For(entity.GetType());
+        var resolved     = new List<(string Code, IReadOnlyDictionary<string, string?> Values)>(byLanguage.Count);
+        IReadOnlyDictionary<string, string?>? baseValues = null;
+
+        foreach (var (languageCode, values) in byLanguage)
+        {
+            ArgumentNullException.ThrowIfNull(values, nameof(byLanguage));
+
+            var code = Existing(languageCode);
+            foreach (var propertyName in values.Keys)
+            {
+                if (!translatable.Any(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal)))
+                {
+                    throw new ArgumentException(
+                        $"'{entity.GetType().Name}.{propertyName}' is not a translatable property.", nameof(byLanguage));
+                }
+            }
+
+            if (options.IsBaseLanguage(code))
+                baseValues = values;
+            else
+                resolved.Add((code, values));
+        }
+
+        if (baseValues is not null)
+            engine.AssignBaseValues(entity, baseValues);
+
+        foreach (var (code, values) in resolved)
+            translations.Stage(entity, code, values);
+
         return this;
     }
 
@@ -212,14 +276,22 @@ internal sealed class TranslationAccessor<T>(
     /// </summary>
     private string Translatable(string languageCode)
     {
+        var code = Existing(languageCode);
+
+        if (options.IsBaseLanguage(code))
+            throw new BaseLanguageNotTranslatableException(MultiLingualMetadata.EntityNameFor(entity.GetType()), code);
+
+        return code;
+    }
+
+    /// <summary>The canonical code of an existing language, the base one included.</summary>
+    private string Existing(string languageCode)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(languageCode);
 
-        var trimmed  = languageCode.Trim();
+        var trimmed = languageCode.Trim();
         var language = catalog.GetAll().FirstOrDefault(l => string.Equals(l.Code, trimmed, StringComparison.OrdinalIgnoreCase))
                        ?? throw new LanguageNotFoundException(trimmed);
-
-        if (options.IsBaseLanguage(language.Code))
-            throw new BaseLanguageNotTranslatableException(MultiLingualMetadata.EntityNameFor(entity.GetType()), language.Code);
 
         return language.Code;
     }

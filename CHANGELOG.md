@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`ITranslationAccessor<T>.SetAll(byLanguage)`** and **`GetAllAsync(includeBase: true)`**: an
+  editor's write and read of every language at once, the base language included, under any
+  `Accept-Language` and without switching the current language. In base-language mode `SetAll`
+  writes the base language to the entity's columns even while another language is current, and
+  never as that language's translation; an entity may be created this way in any language.
+  `GetAllAsync(includeBase: true)` reads the base columns as stored, from the database under EF
+  Core. Outside base-language mode, `SetAll` is `Set` per language and `includeBase` adds nothing.
+  See [editing every language at once](docs/base-language.md#editing-every-language-at-once).
+  Both are new members of `ITranslationAccessor<T>`, which only a class implementing it itself
+  would notice.
 - **`.OwnTransactions(bool)`** (EF Core). The save interceptor opens a transaction of its own only
   when a save writes translations and the caller has none, so another interceptor cannot count on
   one for every save. `false` leaves the transaction to the application: a save that writes
