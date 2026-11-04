@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.0.0-preview.3] - 2026-11-04
+
+Makes the library safe to share a `DbContext` with other libraries' `SaveChanges` interceptors,
+which composing it with DotNetBoost.Auditing in one context showed it was not, and lets an editor
+read and write every language at once in base-language mode without switching the request's
+language.
+
 ### Added
 - **`ITranslationAccessor<T>.SetAll(byLanguage)`** and **`GetAllAsync(includeBase: true)`**: an
   editor's write and read of every language at once, the base language included, under any
@@ -25,38 +34,43 @@ All notable changes to this project are documented here. The format follows
 - **[Sharing a DbContext with other SaveChanges interceptors](docs/limitations.md#sharing-a-dbcontext-with-other-savechanges-interceptors).**
   What each hook does, and what to do per setup: nothing without a retrying strategy, or open the
   transaction yourself around `SaveChanges` to cover saves that write no translations; under a
-  retrying strategy, register `UseMultiLingual` before the other interceptors. It also says why EF's usual `acceptAllChangesOnSuccess: false` retry pattern breaks
-  beside an interceptor that saves again.
+  retrying strategy, register `UseMultiLingual` before the other interceptors. It also says why
+  EF's usual `acceptAllChangesOnSuccess: false` retry pattern breaks beside an interceptor that
+  saves again.
 - **[Storing text about another library's entity](docs/reading-and-writing.md#storing-text-about-another-librarys-entity).**
   A checklist for subjects: nothing deletes their rows unless the application does, and
   `PurgeOrphanedTranslationsAsync` does not cover them.
 
 ### Fixed
+- **A save issued by another interceptor from inside ours wiped ours.** An interceptor registered
+  before `UseMultiLingual` runs its `SavedChanges` first; a `SaveChanges` it issued there
+  (Auditing's deferred pass does) restarted this interceptor's save. The outer save's translation
+  deletes were lost, leaving the rows behind, and its transaction was committed from inside the
+  nested save, so a failure afterwards rolled nothing back. Saves are now counted per context: a
+  nested one adds its work to the outer save, and only the outermost completion writes, commits or
+  rolls back. A save that EF never reported as finished (an interceptor's `SavingChanges` threw) is
+  not mistaken for one still in flight.
 - **An interceptor registered after `UseMultiLingual` did its post-save work outside the
   transaction.** The save interceptor committed its own transaction in its `SavedChanges`, and EF
   runs interceptors in the order they were added, so an audit trail registered after it wrote its
   entries once the entity was already committed, and a failure there rolled nothing back. When
   another `SaveChanges` interceptor follows it, the commit now waits for EF's
   `DbContext.SavedChanges` event, raised once every interceptor has finished, and a failure in any
-  of them rolls everything back. That commit is synchronous, as the event is. Under a retrying
-  strategy, an interceptor registered *before* `UseMultiLingual` still finishes after the commit;
-  register `UseMultiLingual` first there.
-- **A rolled-back save left rows another interceptor added during it tracked**, under keys the
-  rollback had un-issued, so retrying the save on the same context failed on a duplicate key. The
-  change tracker is now put back as it was before the save, those rows detached, as translation
-  rows always were.
-- **A save issued by another interceptor from inside ours no longer wipes ours.** An interceptor
-  registered before `UseMultiLingual` runs its `SavedChanges` first; a `SaveChanges` it issued
-  there (Auditing's deferred pass does) restarted this interceptor's save. The outer save's
-  translation deletes were lost, leaving the rows behind, and its transaction was committed from
-  inside the nested save, so a failure afterwards rolled nothing back. Saves are now counted per
-  context: a nested one adds its work to the outer save, and only the outermost completion writes,
-  commits or rolls back. A save that EF never reported as finished (an interceptor's
-  `SavingChanges` threw) is not mistaken for one still in flight.
+  of them rolls everything back. That commit is synchronous, as the event is.
 - **A concurrency conflict or a cancelled save left this interceptor's transaction open.** EF
   reports neither through `SaveChangesFailed`, only through `ThrowingConcurrencyException` and
   `SaveChangesCanceled`, which were not handled. Both now roll back the transaction and restore the
   change tracker, as a failed save always did.
+- **A rolled-back save left rows another interceptor added during it tracked**, under keys the
+  rollback had un-issued, so retrying the save on the same context failed on a duplicate key. The
+  change tracker is now put back as it was before the save, those rows detached, as translation
+  rows always were.
+
+### Known limitations
+- **Under a retrying execution strategy**, an interceptor registered *before* `UseMultiLingual`
+  that waits for the outermost save still finishes after the commit, which has to happen inside the
+  strategy. Register `UseMultiLingual` first there; see
+  [sharing a DbContext](docs/limitations.md#sharing-a-dbcontext-with-other-savechanges-interceptors).
 
 ## [1.0.0-preview.2] - 2026-10-10
 
@@ -319,6 +333,7 @@ application keeps the versions its runtime ships.
 Single-column keys only, no `AddDbContextPool`, and SQL Server compatibility level 130 or higher.
 `docs/limitations.md` lists them all, with the reasons.
 
-[Unreleased]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.2...HEAD
+[Unreleased]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.3...HEAD
+[1.0.0-preview.3]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.2...v1.0.0-preview.3
 [1.0.0-preview.2]: https://github.com/dotnetboost/multilingual/compare/v1.0.0-preview.1...v1.0.0-preview.2
 [1.0.0-preview.1]: https://github.com/dotnetboost/multilingual/releases/tag/v1.0.0-preview.1
