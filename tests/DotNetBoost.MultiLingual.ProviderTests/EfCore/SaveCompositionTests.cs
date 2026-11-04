@@ -76,7 +76,7 @@ public enum FollowUpOrder
 public sealed class FollowUpFailedException() : Exception("Simulated failure after the follow-up save.");
 
 /// <summary>What the follow-up interceptor saw, and what it is told to do.</summary>
-internal sealed class FollowUpProbe
+public sealed class FollowUpProbe
 {
     public bool Enabled { get; set; } = true;
 
@@ -88,6 +88,9 @@ internal sealed class FollowUpProbe
     /// <summary>Makes the follow-up save add a translatable product too, named in the scope's language.</summary>
     public bool AddProductInFollowUp { get; set; }
 
+    /// <summary>With <see cref="FailTheFollowUpSave"/>: catch that failure and carry on, as a lenient audit trail might.</summary>
+    public bool SwallowFollowUpFailure { get; set; }
+
     /// <summary>One entry per follow-up: whether a transaction was still open when it ran.</summary>
     public List<bool> RanInsideTransaction { get; } = [];
 }
@@ -98,7 +101,7 @@ internal sealed class FollowUpProbe
 /// on the same context, relying on whatever transaction is open. Nested saves, its own or anyone
 /// else's, neither start nor repeat it.
 /// </summary>
-internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChangesInterceptor
+public sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChangesInterceptor
 {
     private int _depth;
     private bool _captured;
@@ -127,7 +130,14 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
         try
         {
             AddNote(context);
-            await context.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException) when (probe.SwallowFollowUpFailure)
+            {
+                DetachNotes(context);
+            }
 
             if (probe.FailAfterFollowUp)
                 throw new FollowUpFailedException();
@@ -149,7 +159,14 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
         try
         {
             AddNote(context);
-            context.SaveChanges();
+            try
+            {
+                context.SaveChanges();
+            }
+            catch (DbUpdateException) when (probe.SwallowFollowUpFailure)
+            {
+                DetachNotes(context);
+            }
 
             if (probe.FailAfterFollowUp)
                 throw new FollowUpFailedException();
@@ -196,6 +213,12 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
 
         if (probe.AddProductInFollowUp)
             context.Add(new ShopProduct { Sku = "NOTE", Name = "Note" });
+    }
+
+    private static void DetachNotes(DbContext context)
+    {
+        foreach (var entry in context.ChangeTracker.Entries<FollowUpNote>().Where(e => e.State == EntityState.Added).ToList())
+            entry.State = EntityState.Detached;
     }
 
     private void Failed()
@@ -416,8 +439,8 @@ internal sealed class ComposedScope(AsyncServiceScope scope, Type contextType) :
 /// </summary>
 public sealed class SaveCompositionTests
 {
-    internal const string Gap2 = "COMPOSITION-GAPS.md gap 2: the owned transaction is committed before later interceptors run.";
-    internal const string Gap2Retrying =
+    public const string Gap2 = "COMPOSITION-GAPS.md gap 2: the owned transaction is committed before later interceptors run.";
+    public const string Gap2Retrying =
         "COMPOSITION-GAPS.md gap 2: under a retrying strategy, an interceptor registered first completes after the strategy's commit.";
 
     // ----------------------------------------------------------------- transaction

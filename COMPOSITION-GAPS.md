@@ -26,6 +26,10 @@ outer save's pending deletes and snapshot, and committed its transaction from th
 - A nested save's failure is left to whoever issued it. The notes proposed marking the outer save
   failed instead; that was dropped, because when the outer save had no transaction of its own
   its changes are already committed, and failing it would report a loss that did not happen.
+  On a real engine it holds up too: EF Core sets a savepoint before a `SaveChanges` inside an
+  existing transaction and rolls back to it, so even on PostgreSQL, where a failed statement
+  aborts the whole transaction, a swallowed nested failure loses only that save's own rows
+  (`ASwallowedFollowUpFailure_LosesOnlyTheFollowUpsOwnRow`).
 - **What EF does and does not report**, checked on EF 8 and 10. Auditing's depth tracking (its
   gap 2) needs the same care:
 
@@ -218,11 +222,13 @@ belong to, so each fix un-skips its own. The gap 1 rows pass now; the six still 
 The same file covers the failures EF never reports (gap 1, *What shipped*), a nested save that
 itself fails, `OwnTransactions(false)` (gap 2), and the documented application-owned transaction.
 `SyncSaveCompositionTests` runs the same cases through the synchronous `SaveChanges()`.
+`SaveCompositionIntegrationTests` runs the core of the matrix on PostgreSQL and SQL Server, with each
+provider's own `EnableRetryOnFailure`: the real drivers' synchronous deferred commit, and a swallowed
+nested failure.
 
 **Still to do.**
 
-1. One PostgreSQL smoke case in `tests/DotNetBoost.MultiLingual.IntegrationTests`.
-2. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
+1. Tests for `SetAll` / `GetAllAsync(includeBase: true)` once gap 3 ships. Under
    `Accept-Language: ar`, they must write the base columns, store no base text as an Arabic
    translation, return the base text after a save under `ar`, and leave `CurrentLanguage`
    unchanged.
