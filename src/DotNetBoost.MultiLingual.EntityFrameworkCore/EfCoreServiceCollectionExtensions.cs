@@ -42,13 +42,12 @@ namespace Microsoft.Extensions.DependencyInjection
         /// translations and the caller has none. Default: <c>true</c>, so the entity and its
         /// translations commit or roll back together with no setup.
         /// <para>
-        /// Pass <c>false</c> when the context carries other <c>SaveChanges</c> interceptors that do
-        /// post-save work. A transaction this interceptor opens is committed in its own
-        /// <c>SavedChanges</c>, so an interceptor that runs after it works outside the transaction.
-        /// With <c>false</c> the application opens the transaction around <c>SaveChanges</c> and
-        /// every interceptor runs inside it; a save that writes translations without one is
-        /// refused before anything is written. See <i>Sharing a DbContext with other SaveChanges
-        /// interceptors</i> in <c>docs/limitations.md</c>.
+        /// Pass <c>false</c> when the application opens the transaction around every
+        /// <c>SaveChanges</c> itself — beside other <c>SaveChanges</c> interceptors, for instance, so
+        /// that saves which write no translations are atomic too: this interceptor opens one only
+        /// when there are translations to write. A save that writes translations without a
+        /// transaction is then refused before anything is written. See <i>Sharing a DbContext with
+        /// other SaveChanges interceptors</i> in <c>docs/limitations.md</c>.
         /// </para>
         /// </summary>
         public static MultiLingualBuilder OwnTransactions(this MultiLingualBuilder builder, bool own)

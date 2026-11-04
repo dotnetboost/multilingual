@@ -42,8 +42,10 @@ through `IMultiLingualManager`.
 
 The save interceptor writes translation rows after the entity's own save, because a store-generated
 key exists only then. When the caller has no transaction, it opens one in `SavingChanges` and
-commits it in `SavedChanges`, so the entity and its translations land together. That ordering is
-what matters beside other `SaveChanges` interceptors; see
+commits it in `SavedChanges`, so the entity and its translations land together. When another
+`SaveChanges` interceptor is registered after it, the commit waits for EF's `DbContext.SavedChanges`
+event instead, which follows every interceptor's `SavedChanges`, so that one's work is inside the
+transaction too. More on sharing a context with other interceptors in
 [sharing a DbContext with other interceptors](limitations.md#sharing-a-dbcontext-with-other-savechanges-interceptors).
 
 ## Packages

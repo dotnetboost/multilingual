@@ -27,7 +27,9 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 ///
 /// <para><b>Atomicity.</b> If the caller has no transaction open, this interceptor opens one
 /// before the primary save and commits it only once the translation rows are in. A failure
-/// anywhere rolls the entity and its translations back together.</para>
+/// anywhere rolls the entity and its translations back together. When another
+/// <c>SaveChanges</c> interceptor is registered after this one, the commit waits until that one's
+/// post-save work is done as well; see <see cref="DeferCommit"/>.</para>
 ///
 /// <para><b>Retrying execution strategies.</b> A strategy such as <c>EnableRetryOnFailure</c>
 /// refuses a transaction it did not start, because it could not replay it. So when one is
@@ -146,7 +148,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             return result;
 
         if (!Leave(state))
+        {
+            NoteNestedSaveCompleted(state);
             return result;
+        }
 
         if (!state.HasWork)
         {
@@ -155,6 +160,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         }
 
         state.IsApplying = true;
+        var deferred = false;
         try
         {
             var (writer, deletes, writes) = PrepareApply(context, state);
@@ -166,8 +172,15 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             // before a commit that then fails would make the retry believe they were stored.
             await writer.WriteAsync(WithoutSources(writes), cancellationToken);
 
-            await CommitOwnedTransactionAsync(state, cancellationToken);
-            Complete(state, writes);
+            if (DeferCommit(context, state, writes))
+            {
+                deferred = true;
+            }
+            else
+            {
+                await CommitOwnedTransactionAsync(state, cancellationToken);
+                Complete(state, writes);
+            }
         }
         catch
         {
@@ -178,7 +191,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         finally
         {
             state.IsApplying = false;
-            state.Reset();
+            if (deferred)
+                state.ClearPending();
+            else
+                state.Reset();
         }
 
         return result;
@@ -198,7 +214,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             return result;
 
         if (!Leave(state))
+        {
+            NoteNestedSaveCompleted(state);
             return result;
+        }
 
         if (!state.HasWork)
         {
@@ -207,6 +226,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         }
 
         state.IsApplying = true;
+        var deferred = false;
         try
         {
             var (writer, deletes, writes) = PrepareApply(context, state);
@@ -216,8 +236,15 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
 
             writer.Write(WithoutSources(writes));
 
-            CommitOwnedTransaction(state);
-            Complete(state, writes);
+            if (DeferCommit(context, state, writes))
+            {
+                deferred = true;
+            }
+            else
+            {
+                CommitOwnedTransaction(state);
+                Complete(state, writes);
+            }
         }
         catch
         {
@@ -228,7 +255,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         finally
         {
             state.IsApplying = false;
-            state.Reset();
+            if (deferred)
+                state.ClearPending();
+            else
+                state.Reset();
         }
 
         return result;
@@ -459,9 +489,13 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
                 case EntityState.Added:
                 case EntityState.Modified:
                 case EntityState.Unchanged:
-                    // A nested save sees the outer save's entries again, accepted by now.
-                    if (state.Writes.Exists(w => ReferenceEquals(w.Entry.Entity, entry.Entity)))
+                    // A nested save sees the outer save's entries again, accepted by now — pending,
+                    // or already written while a deferred commit waits.
+                    if (state.Writes.Exists(w => ReferenceEquals(w.Entry.Entity, entry.Entity))
+                        || state.Applied.Exists(w => ReferenceEquals(w.Source, entry.Entity)))
+                    {
                         break;
+                    }
 
                     if (entry.State == EntityState.Added)
                         RequireBaseLanguageOnCreate(entityName);
@@ -492,7 +526,8 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     /// </para>
     /// </summary>
     private static bool IsNested(SaveState state) =>
-        state.Depth > 0
+        state.CommitPending
+        || state.Depth > 0
         && state.Changed.Count > 0
         && state.Changed.TrueForAll(c => c.Entry.State == (c.State == EntityState.Deleted ? EntityState.Detached : EntityState.Unchanged));
 
@@ -759,6 +794,21 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         /// <summary>Every entry the outermost save changed, and how: what <see cref="IsNested(SaveState)"/> checks.</summary>
         public List<(EntityEntry Entry, EntityState State)> Changed { get; } = [];
 
+        /// <summary>
+        /// Set when the owned transaction waits for EF's <c>SavedChanges</c> event, because another
+        /// interceptor still has its <c>SavedChanges</c> to run. See <see cref="DeferCommit"/>.
+        /// </summary>
+        public bool CommitPending { get; set; }
+
+        /// <summary>Saves nested in the pending window that completed, whose own event comes first.</summary>
+        public int NestedSavesAwaitingEvent { get; set; }
+
+        /// <summary>Writes stored, to complete once the deferred commit succeeds.</summary>
+        public List<TranslationWrite> Applied { get; } = [];
+
+        /// <summary>Whether this interceptor listens to the context's <c>SavedChanges</c> event.</summary>
+        public bool ListensToSavedChanges { get; set; }
+
         /// <summary>Set while a retrying strategy owns the transaction; survives <see cref="Reset"/>.</summary>
         public bool DeferCompletion { get; set; }
 
@@ -766,12 +816,22 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         public List<TranslationWrite> Deferred { get; } = [];
         public bool HasWork => Writes.Count > 0 || Deletes.Count > 0;
 
+        /// <summary>Forgets the work already applied, and keeps everything a deferred commit still needs.</summary>
+        public void ClearPending()
+        {
+            Writes.Clear();
+            Deletes.Clear();
+        }
+
         public void Reset()
         {
             Writes.Clear();
             Deletes.Clear();
             Snapshot = null;
             Changed.Clear();
+            CommitPending = false;
+            NestedSavesAwaitingEvent = 0;
+            Applied.Clear();
         }
     }
 

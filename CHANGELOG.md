@@ -7,22 +7,34 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- **`.OwnTransactions(bool)`** (EF Core). The save interceptor opens a transaction of its own when a
-  save writes translations and the caller has none, and commits it in its own `SavedChanges`. An
-  interceptor registered after it, an audit trail say, then does its post-save work after that
-  commit, outside the transaction. `false` leaves the transaction to the application: a save that
-  writes translations without one is refused before anything is written, instead of half of it
-  landing outside a transaction. Default `true`, as before.
+- **`.OwnTransactions(bool)`** (EF Core). The save interceptor opens a transaction of its own only
+  when a save writes translations and the caller has none, so another interceptor cannot count on
+  one for every save. `false` leaves the transaction to the application: a save that writes
+  translations without one is refused before anything is written, instead of half of it landing
+  outside a transaction. Default `true`, as before.
 - **[Sharing a DbContext with other SaveChanges interceptors](docs/limitations.md#sharing-a-dbcontext-with-other-savechanges-interceptors).**
-  What each hook does, and what to do per setup: open the transaction yourself around
-  `SaveChanges`, or, under a retrying strategy, register `UseMultiLingual` before the other
-  interceptors. It also says why EF's usual `acceptAllChangesOnSuccess: false` retry pattern breaks
+  What each hook does, and what to do per setup: nothing without a retrying strategy, or open the
+  transaction yourself around `SaveChanges` to cover saves that write no translations; under a
+  retrying strategy, register `UseMultiLingual` before the other interceptors. It also says why EF's usual `acceptAllChangesOnSuccess: false` retry pattern breaks
   beside an interceptor that saves again.
 - **[Storing text about another library's entity](docs/reading-and-writing.md#storing-text-about-another-librarys-entity).**
   A checklist for subjects: nothing deletes their rows unless the application does, and
   `PurgeOrphanedTranslationsAsync` does not cover them.
 
 ### Fixed
+- **An interceptor registered after `UseMultiLingual` did its post-save work outside the
+  transaction.** The save interceptor committed its own transaction in its `SavedChanges`, and EF
+  runs interceptors in the order they were added, so an audit trail registered after it wrote its
+  entries once the entity was already committed, and a failure there rolled nothing back. When
+  another `SaveChanges` interceptor follows it, the commit now waits for EF's
+  `DbContext.SavedChanges` event, raised once every interceptor has finished, and a failure in any
+  of them rolls everything back. That commit is synchronous, as the event is. Under a retrying
+  strategy, an interceptor registered *before* `UseMultiLingual` still finishes after the commit;
+  register `UseMultiLingual` first there.
+- **A rolled-back save left rows another interceptor added during it tracked**, under keys the
+  rollback had un-issued, so retrying the save on the same context failed on a duplicate key. The
+  change tracker is now put back as it was before the save, those rows detached, as translation
+  rows always were.
 - **A save issued by another interceptor from inside ours no longer wipes ours.** An interceptor
   registered before `UseMultiLingual` runs its `SavedChanges` first; a `SaveChanges` it issued
   there (Auditing's deferred pass does) restarted this interceptor's save. The outer save's

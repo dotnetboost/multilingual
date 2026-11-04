@@ -49,24 +49,32 @@ owns the transaction**. What the save interceptor does at each step:
 | Step | What it does |
 |---|---|
 | `SavingChanges` | Captures the translation work. When there is some and no transaction is open (neither `Database.CurrentTransaction` nor an ambient `TransactionScope`), opens one |
-| `SavedChanges` | Writes the translation rows through the same context. That is a nested `SaveChanges`, which other interceptors see too. Then commits the transaction it opened |
-| `SaveChangesFailed`, `SaveChangesCanceled`, `ThrowingConcurrencyException` | Rolls back the transaction it opened, and puts the change tracker back so the save can be retried |
+| `SavedChanges` | Writes the translation rows through the same context. That is a nested `SaveChanges`, which other interceptors see too. Then commits the transaction it opened, unless another `SaveChanges` interceptor is registered after it (next row) |
+| EF's `DbContext.SavedChanges` event | Commits the transaction it opened, when another `SaveChanges` interceptor follows it. EF raises the event once every interceptor's `SavedChanges` has returned, so their post-save work is inside the transaction too |
+| `SaveChangesFailed`, `SaveChangesCanceled`, `ThrowingConcurrencyException` | Rolls back the transaction it opened, and puts the change tracker back so the save can be retried, detaching any row the failed save started tracking |
 
-EF Core runs interceptors in the order they were added. So an interceptor registered **after**
-`UseMultiLingual` does its post-save work after that commit, outside the transaction, and a
-failure there can no longer roll the entity back. Nothing reports it. The transaction also exists
-only when the save writes translations: a save that changes only a price opens none, so another
-interceptor cannot rely on it.
+EF Core runs interceptors in the order they were added, and each one's `SavedChanges` may do more
+work: an audit trail writes the entries that needed the generated keys, often with a `SaveChanges`
+of its own. Without a retrying strategy, that work is inside this library's transaction in either
+order:
 
-A `SaveChanges` that an interceptor registered **before** `UseMultiLingual` issues from its own
-`SavedChanges` is recognised as nested inside the save in progress: its work joins that save, which
-alone writes, commits or rolls back.
+- registered **before** `UseMultiLingual`, its `SavedChanges` runs first, and a `SaveChanges` it
+  issues there is recognised as nested inside the save in progress: its work joins that save, which
+  alone writes, commits or rolls back;
+- registered **after**, its `SavedChanges` runs before the commit, which waits for the event. That
+  commit is synchronous, even under `SaveChangesAsync`, because the event is: one blocking round
+  trip, and only on a context where another `SaveChanges` interceptor follows this one.
+
+Two things stay true. The transaction exists only when the save writes translations: a save that
+changes only a price opens none, so another interceptor cannot rely on it. And under a retrying
+strategy the commit happens inside the strategy (below), before an interceptor registered first has
+finished.
 
 What to do:
 
 | Your setup | Do this |
 |---|---|
-| No retrying execution strategy | Open the transaction yourself, around every `SaveChanges` (below). Every interceptor then runs inside it, in either order, whether or not the save writes translations. Add `.OwnTransactions(false)` so that a save which would otherwise have opened its own (one that bypasses the override, say) is refused instead. Registering `UseMultiLingual(sp)` **after** the other interceptors also keeps their work inside this library's transaction, but only for saves that write translations |
+| No retrying execution strategy | Nothing, for saves that write translations: every interceptor's work is inside this library's transaction, in either order. For every save to be atomic, those that write no translations too, open the transaction yourself around `SaveChanges` (below), and add `.OwnTransactions(false)` so that a save which would otherwise have opened its own (one that bypasses the override, say) is refused instead |
 | A retrying strategy (`EnableRetryOnFailure`) | Keep `OwnTransactions` on and register `UseMultiLingual(sp)` **before** the other interceptors. The save interceptor then runs the whole save, every interceptor's work included, inside one transaction under the strategy, and replays it as a unit. This one opens a transaction whenever a translatable entity is tracked |
 
 The application-owned transaction, in the context. Override the synchronous `SaveChanges(bool)`

@@ -1,4 +1,3 @@
-using DotNetBoost.MultiLingual.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 
@@ -6,28 +5,27 @@ namespace DotNetBoost.MultiLingual.EntityFrameworkCore;
 
 /// <summary>
 /// The change tracker as it stood before a save — taken by <see cref="MultiLingualSaveChangesInterceptor"/>: every entry the save will change, and every
-/// tracked translation row. <see cref="Restore"/> puts it back after a rolled-back save.
+/// entity tracked at all. <see cref="Restore"/> puts it back after a rolled-back save.
 /// </summary>
 internal sealed class TrackerSnapshot
 {
     private readonly List<EntrySnapshot> _entries;
-    private readonly HashSet<object> _translations;
+    private readonly HashSet<object> _tracked;
 
-    private TrackerSnapshot(List<EntrySnapshot> entries, HashSet<object> translations)
+    private TrackerSnapshot(List<EntrySnapshot> entries, HashSet<object> tracked)
     {
-        _entries      = entries;
-        _translations = translations;
+        _entries = entries;
+        _tracked = tracked;
     }
 
     public static TrackerSnapshot Take(IEnumerable<EntityEntry> entries)
     {
-        var changed      = new List<EntrySnapshot>();
-        var translations = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var changed = new List<EntrySnapshot>();
+        var tracked = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
         foreach (var entry in entries)
         {
-            if (entry.Entity is Translation)
-                translations.Add(entry.Entity);
+            tracked.Add(entry.Entity);
 
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
                 continue;
@@ -41,15 +39,17 @@ internal sealed class TrackerSnapshot
                 entry.Properties.Where(p => p.IsTemporary).Select(p => p.Metadata.Name).ToArray()));
         }
 
-        return new TrackerSnapshot(changed, translations);
+        return new TrackerSnapshot(changed, tracked);
     }
 
     public void Restore(DbContext context)
     {
-        // Translation rows the failed write started tracking would collide with the retry's.
-        foreach (var entry in context.ChangeTracker.Entries<Translation>().ToList())
+        // Rows the failed save started tracking — translation rows, and whatever another
+        // interceptor saved from inside it — were rolled back with it. Left tracked, under keys the
+        // rollback un-issued, they would collide with the retry's.
+        foreach (var entry in context.ChangeTracker.Entries().ToList())
         {
-            if (!_translations.Contains(entry.Entity))
+            if (!_tracked.Contains(entry.Entity))
                 entry.State = EntityState.Detached;
         }
 

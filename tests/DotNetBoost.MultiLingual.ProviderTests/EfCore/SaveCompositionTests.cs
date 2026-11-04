@@ -85,6 +85,9 @@ internal sealed class FollowUpProbe
     /// <summary>Makes the follow-up save itself fail, on a NOT NULL column.</summary>
     public bool FailTheFollowUpSave { get; set; }
 
+    /// <summary>Makes the follow-up save add a translatable product too, named in the scope's language.</summary>
+    public bool AddProductInFollowUp { get; set; }
+
     /// <summary>One entry per follow-up: whether a transaction was still open when it ran.</summary>
     public List<bool> RanInsideTransaction { get; } = [];
 }
@@ -190,6 +193,9 @@ internal sealed class FollowUpSaveInterceptor(FollowUpProbe probe) : SaveChanges
     {
         probe.RanInsideTransaction.Add(context.Database.CurrentTransaction is not null);
         context.Add(new FollowUpNote { Text = probe.FailTheFollowUpSave ? null! : "follow-up" });
+
+        if (probe.AddProductInFollowUp)
+            context.Add(new ShopProduct { Sku = "NOTE", Name = "Note" });
     }
 
     private void Failed()
@@ -229,8 +235,14 @@ internal sealed class ComposedShop : IAsyncDisposable
     /// <param name="baseLanguage">Whether <c>BaseLanguage = "en"</c>.</param>
     /// <param name="ownTransactions">What <c>OwnTransactions(bool)</c> is set to.</param>
     /// <param name="appTransactions">Whether the context opens its own transaction around every save.</param>
+    /// <param name="extra">Further interceptors, added last.</param>
     public static async Task<ComposedShop> StartAsync(
-        FollowUpOrder order, bool retrying, bool baseLanguage = false, bool ownTransactions = true, bool appTransactions = false)
+        FollowUpOrder order,
+        bool retrying,
+        bool baseLanguage = false,
+        bool ownTransactions = true,
+        bool appTransactions = false,
+        IInterceptor[]? extra = null)
     {
         var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
         await connection.OpenAsync();
@@ -241,9 +253,9 @@ internal sealed class ComposedShop : IAsyncDisposable
 
         var contextType = (baseLanguage, appTransactions) switch
         {
-            (true, false) => Register<BaseComposedShopDbContext>(services, connection, order, retrying, ownTransactions, probe, o => o.BaseLanguage = "en"),
-            (false, false) => Register<ComposedShopDbContext>(services, connection, order, retrying, ownTransactions, probe, _ => { }),
-            (false, true) => Register<AppTransactionDbContext>(services, connection, order, retrying, ownTransactions, probe, _ => { }),
+            (true, false) => Register<BaseComposedShopDbContext>(services, connection, order, retrying, ownTransactions, probe, extra, o => o.BaseLanguage = "en"),
+            (false, false) => Register<ComposedShopDbContext>(services, connection, order, retrying, ownTransactions, probe, extra, _ => { }),
+            (false, true) => Register<AppTransactionDbContext>(services, connection, order, retrying, ownTransactions, probe, extra, _ => { }),
             _ => throw new NotSupportedException("No base-language context with application transactions."),
         };
 
@@ -267,6 +279,7 @@ internal sealed class ComposedShop : IAsyncDisposable
         bool retrying,
         bool ownTransactions,
         FollowUpProbe probe,
+        IInterceptor[]? extra,
         Action<Core.MultiLingualOptions> configure)
         where TContext : ComposedDbContext
     {
@@ -283,6 +296,9 @@ internal sealed class ComposedShop : IAsyncDisposable
 
             if (order == FollowUpOrder.After)
                 options.AddInterceptors(new FollowUpSaveInterceptor(probe));
+
+            if (extra is not null)
+                options.AddInterceptors(extra);
         });
 
         return typeof(TContext);
@@ -408,7 +424,7 @@ public sealed class SaveCompositionTests
 
     [Theory]
     [InlineData(FollowUpOrder.Before, false)]
-    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
     public async Task Create_RunsTheFollowUpInsideTheTransaction(FollowUpOrder order, bool retrying)
@@ -426,7 +442,7 @@ public sealed class SaveCompositionTests
 
     [Theory]
     [InlineData(FollowUpOrder.Before, false)]
-    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
     public async Task FailureAfterTheFollowUp_RollsBackEverything(FollowUpOrder order, bool retrying)
@@ -445,7 +461,7 @@ public sealed class SaveCompositionTests
 
     [Theory]
     [InlineData(FollowUpOrder.Before, false)]
-    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
     public async Task FailureOfTheFollowUpSave_RollsBackEverything(FollowUpOrder order, bool retrying)
@@ -608,6 +624,92 @@ public sealed class SaveCompositionTests
 
         Assert.Equal([true], shop.Probe.RanInsideTransaction);
         Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    // ----------------------------------------------------------------- the deferred commit
+
+    /// <summary>
+    /// Registered after the follow-up, the commit waits for EF's <c>SavedChanges</c> event. A commit
+    /// failing there must leave nothing stored, and the save retryable.
+    /// </summary>
+    [Fact]
+    public async Task ACommitFailingAfterTheFollowUp_StoresNothing_AndTheSaveCanBeRetried()
+    {
+        var commits = new FailCommits();
+        await using var shop = await ComposedShop.StartAsync(FollowUpOrder.After, retrying: false, extra: [commits]);
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            commits.Arm(1);
+            await Assert.ThrowsAsync<TransientTestException>(() => scope.Db.SaveChangesAsync());
+            Assert.Null(scope.Db.Database.CurrentTransaction);
+            Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+
+            await scope.Db.SaveChangesAsync();
+        }
+
+        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
+    }
+
+    /// <summary>
+    /// Translations a follow-up save adds are written too — while the deferred commit waits
+    /// (registered after), or with the outer save's own (registered before).
+    /// </summary>
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task TranslationsTheFollowUpSaveAdds_AreWrittenInTheSameTransaction(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+        shop.Probe.AddProductInFollowUp = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            await scope.Db.SaveChangesAsync();
+        }
+
+        Assert.Equal([("fr", (string?)"Note"), ("fr", "Souris")], (await shop.StoredNamesAsync()).OrderBy(n => n.Value).ToList());
+        Assert.Equal((2, 2, 1), await shop.StoredCountsAsync());
+    }
+
+    [Theory]
+    [InlineData(FollowUpOrder.Before, false)]
+    [InlineData(FollowUpOrder.After, false)]
+    [InlineData(FollowUpOrder.After, true)]
+    public async Task TranslationsTheFollowUpSaveAdds_RollBackWithEverythingElse(FollowUpOrder order, bool retrying)
+    {
+        await using var shop = await ComposedShop.StartAsync(order, retrying);
+        shop.Probe.AddProductInFollowUp = true;
+        shop.Probe.FailAfterFollowUp    = true;
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+            await Assert.ThrowsAsync<FollowUpFailedException>(() => scope.Db.SaveChangesAsync());
+        }
+
+        Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    /// <summary>With no SaveChanges interceptor after this one, nothing waits: the commit is the one it always was.</summary>
+    [Fact]
+    public async Task WithNoInterceptorAfterThisOne_TheCommitIsNotDeferred()
+    {
+        var commits = new FailCommits();
+        await using var shop = await ComposedShop.StartAsync(FollowUpOrder.Before, retrying: false, extra: [commits]);
+
+        await using var scope = await shop.ScopeInAsync("fr");
+        var committedInSavedChanges = false;
+        scope.Db.SavedChanges += (_, _) => committedInSavedChanges = scope.Db.Database.CurrentTransaction is null;
+
+        scope.Db.Products.Add(new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Souris" });
+        await scope.Db.SaveChangesAsync();
+
+        Assert.True(committedInSavedChanges);
     }
 
     // ----------------------------------------------------------------- OwnTransactions(false)
@@ -831,7 +933,7 @@ public sealed class SyncSaveCompositionTests
 
     [Theory]
     [InlineData(FollowUpOrder.Before, false)]
-    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
     public async Task Create_RunsTheFollowUpInsideTheTransaction(FollowUpOrder order, bool retrying)
@@ -851,7 +953,7 @@ public sealed class SyncSaveCompositionTests
 
     [Theory]
     [InlineData(FollowUpOrder.Before, false)]
-    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
     public async Task FailureAfterTheFollowUp_RollsBackEverything(FollowUpOrder order, bool retrying)
@@ -870,7 +972,7 @@ public sealed class SyncSaveCompositionTests
 
     [Theory]
     [InlineData(FollowUpOrder.Before, false)]
-    [InlineData(FollowUpOrder.After, false, Skip = Gap2)]
+    [InlineData(FollowUpOrder.After, false)]
     [InlineData(FollowUpOrder.Before, true, Skip = Gap2Retrying)]
     [InlineData(FollowUpOrder.After, true)]
     public async Task FailureOfTheFollowUpSave_RollsBackEverything(FollowUpOrder order, bool retrying)
@@ -945,6 +1047,27 @@ public sealed class SyncSaveCompositionTests
 
         Assert.Equal([true], shop.Probe.RanInsideTransaction);
         Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+    }
+
+    [Fact]
+    public async Task ACommitFailingAfterTheFollowUp_StoresNothing_AndTheSaveCanBeRetried()
+    {
+        var commits = new FailCommits();
+        await using var shop = await ComposedShop.StartAsync(FollowUpOrder.After, retrying: false, extra: [commits]);
+
+        await using (var scope = await shop.ScopeInAsync("fr"))
+        {
+            scope.Db.Products.Add(Mouse());
+            commits.Arm(1);
+            Assert.Throws<TransientTestException>(() => scope.Db.SaveChanges());
+            Assert.Null(scope.Db.Database.CurrentTransaction);
+            Assert.Equal((0, 0, 0), await shop.StoredCountsAsync());
+
+            scope.Db.SaveChanges();
+        }
+
+        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
     }
 
     [Fact]

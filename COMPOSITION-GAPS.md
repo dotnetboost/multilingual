@@ -64,66 +64,49 @@ So the cause is most likely outside this library: Auditing's own state handling 
 value into `""`. The sample uses HiLo keys today, so nothing is deferred there now; the observation
 dates from an identity-key setup.
 
-## 2. The owned transaction is committed before later interceptors run — partly addressed
+## 2. The owned transaction was committed before later interceptors ran — mostly fixed, unreleased
 
-**What goes wrong.** When the caller has no transaction, `SavingChangesAsync` opens one and
-`SavedChangesAsync` commits it (`CommitOwnedTransactionAsync`). EF runs interceptors in the order
-they were added. Any interceptor registered after this one therefore does its post-save work
-**after** the commit. Auditing's deferred Created entries are one example (the sample registers
-`UseMultiLingual(sp).UseAuditing(sp)`). Nothing reports it.
+**What went wrong.** When the caller has no transaction, `SavingChanges` opens one, and
+`SavedChanges` committed it. EF runs interceptors in the order they were added, so an interceptor
+registered after this one (the sample registers `UseMultiLingual(sp).UseAuditing(sp)`) did its
+post-save work after the commit, outside the transaction. Nothing reported it.
 
-The retrying path only half avoids this. `SaveUnderStrategyAsync`
-(`MultiLingualSaveChangesInterceptor.RetryingStrategy.cs`) suppresses the caller's save, runs it
-again inside its own transaction, and commits once that inner `SaveChangesAsync` returns. An
-interceptor registered after this one does its work inside that inner save, so inside the
-transaction. One registered **before** it, and that waits for the outermost save to complete
-(as Auditing's depth tracking in its gap 2 would), works in the outer save's `SavedChanges`,
-after the strategy's commit.
+**Fixed: the commit waits for EF's `DbContext.SavedChanges` event** when another `SaveChanges`
+interceptor is registered after this one (`MultiLingualSaveChangesInterceptor.DeferredCommit.cs`).
+Checked on EF 8 and 10: the event fires once every interceptor's `SavedChanges` has returned, and
+not at all when one throws, when every interceptor sees `SaveChangesFailed` instead and this one
+rolls back the transaction it still holds. Until the event, the save counts as in flight, so a
+`SaveChanges` a later interceptor issues in between is nested in it (gap 1). Translations such a
+save adds are written at the event, before the commit. This replaced Option A, which would have
+broken the "registered before" order that gap 1 had fixed, and conflicted with Auditing's own
+depth tracking.
 
-Two more things `SaveCompositionTests` showed:
+Costs and side fixes:
 
-- This library opens a transaction only when the save has translation work. A save that changes
-  only a price opens none, so another interceptor cannot rely on this one for its transaction.
-  The retrying path is the exception: it opens one whenever a translatable entity is tracked.
-- The only arrangement that stayed atomic in both orders is a transaction the **caller** opened
-  (`CallerTransaction_KeepsEverythingAtomic`).
+- The event is synchronous, so the deferred commit is too, even under `SaveChangesAsync`. It is
+  deferred only on a context where another `SaveChanges` interceptor follows this one, found
+  through `CoreOptionsExtension.Interceptors`.
+- `TrackerSnapshot.Restore` now detaches every row the failed save started tracking, not just
+  translation rows. A follow-up row the rollback un-did stayed tracked under its rolled-back key,
+  and retrying the save on the same context failed on a duplicate key.
 
-**Confirmed by `SaveCompositionTests`:** `Create_RunsTheFollowUpInsideTheTransaction` and
-`FailureAfterTheFollowUp_RollsBackEverything` fail when the follow-up interceptor is registered
-after (no strategy) and when it is registered before under a retrying strategy.
+**Still open: a retrying strategy with the other interceptor registered first.** There the save
+interceptor runs the save inside the strategy and commits there, before an interceptor registered
+earlier, waiting for the outermost save, has finished. The commit cannot wait for the event,
+because the strategy needs it inside its own call. The docs say to register `UseMultiLingual`
+first under a retrying strategy. The six skipped rows in `SaveCompositionTests` (three async,
+three sync) are this case.
 
-**Shipped so far** (unreleased, see `CHANGELOG.md`):
+**Also shipped:** `.OwnTransactions(false)`, for applications that open the transaction around
+every `SaveChanges` themselves, so that saves writing no translations are atomic too: this library
+opens one only when there are translations to write. And *Sharing a DbContext with other
+SaveChanges interceptors* in `docs/limitations.md`.
 
-- **Option B:** `.OwnTransactions(false)`. The interceptor then never opens a transaction, and a
-  save that writes translations with neither `Database.CurrentTransaction` nor
-  `Transaction.Current` is refused in `SavingChanges`, before anything reaches the database. It
-  also turns off the retrying path, which opens a transaction too.
-- **The docs:** *Sharing a DbContext with other SaveChanges interceptors* in `docs/limitations.md`,
-  linked from `docs/architecture.md` and the configuration reference. What each hook does, and
-  what to do per setup, each line backed by a `SaveCompositionTests` case:
-  - no retrying strategy: the application opens the transaction around every `SaveChanges`, which
-    keeps every interceptor inside it in either order
-    (`TheDocumentedAppTransaction_*`, `CallerTransaction_KeepsEverythingAtomic`);
-  - a retrying strategy: keep `OwnTransactions` on and register `UseMultiLingual` first (the
-    `After, true` rows).
-
-**Corrected: the retrying-strategy variant these notes proposed does not work.** It used EF's usual
-`SaveChangesAsync(acceptAllChangesOnSuccess: false)` plus `AcceptAllChanges()` after the commit.
-Beside an interceptor that saves again from its `SavedChanges`, the outer save's changes are not
-accepted yet when that second save runs, so the second save writes them again: the product was
-inserted twice, and a delete failed as a concurrency conflict. The docs now warn against it, and
-recommend this library's own retrying path instead.
-
-**Still open: Option A.** Run every owned save the way the retrying path does: when there is work
-and no caller transaction, `SavingChanges(Async)` opens the transaction, runs the save inside it,
-commits, and returns `SuppressWithResult`. That covers every interceptor that does its work in the
-inner save. It does **not** cover one registered first that waits for the outermost save, which is
-exactly what Auditing's gap 2 fix proposes, and the `Before, true` rows show it failing today. The
-two proposals conflict, so settle them together, probably by having neither library save again on
-the caller's context (see *Related*). It also costs what the class remarks already state for the
-retrying path: other interceptors see a `SavingChanges`/`SavedChanges` pair for the inner save as
-well as the outer one, and `SaveChanges(false)` still accepts changes on success. The six skipped
-rows in `SaveCompositionTests` are this gap.
+**Corrected: EF's usual retry pattern breaks beside an interceptor that saves again.** These notes
+once proposed `SaveChangesAsync(acceptAllChangesOnSuccess: false)` plus `AcceptAllChanges()` after
+the commit. The outer save's changes are not accepted yet when the second save runs, so it writes
+them again: the product was inserted twice, and a delete failed as a concurrency conflict. The docs
+warn against it.
 
 **Related.** The translation store's nested `SaveChanges` is itself what trips Auditing (see that
 repo's `COMPOSITION-GAPS.md`, gap 2). Only the upsert path does this: deletes already go through
