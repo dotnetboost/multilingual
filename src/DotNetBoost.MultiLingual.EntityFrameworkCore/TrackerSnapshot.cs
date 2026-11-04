@@ -47,11 +47,8 @@ internal sealed class TrackerSnapshot
         // Rows the failed save started tracking — translation rows, and whatever another
         // interceptor saved from inside it — were rolled back with it. Left tracked, under keys the
         // rollback un-issued, they would collide with the retry's.
-        foreach (var entry in context.ChangeTracker.Entries().ToList())
-        {
-            if (!_tracked.Contains(entry.Entity))
-                entry.State = EntityState.Detached;
-        }
+        foreach (var entry in context.ChangeTracker.Entries().Where(e => !_tracked.Contains(e.Entity)).ToList())
+            entry.State = EntityState.Detached;
 
         // States first: deleted entries are detached by now, and must be tracked again before
         // their values can be set.

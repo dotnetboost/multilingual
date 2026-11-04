@@ -253,6 +253,7 @@ internal sealed class ComposedShop : IAsyncDisposable
 
     public FollowUpProbe Probe { get; }
 
+    /// <summary>A shop over a fresh database, with the follow-up interceptor where <paramref name="order"/> says.</summary>
     /// <param name="order">Where the follow-up interceptor is registered.</param>
     /// <param name="retrying">Whether a retrying execution strategy is configured.</param>
     /// <param name="baseLanguage">Whether <c>BaseLanguage = "en"</c>.</param>
@@ -518,7 +519,7 @@ public sealed class SaveCompositionTests
             await scope.Db.SaveChangesAsync();
         }
 
-        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("fr", "Souris")], await shop.StoredNamesAsync());
         Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
     }
 
@@ -564,7 +565,7 @@ public sealed class SaveCompositionTests
 
         // No translation work, so no transaction of ours: the follow-up runs, but in whatever
         // transaction its own caller provides. Only the retrying path opens one regardless.
-        Assert.Equal([("en", (string?)"Laptop"), ("fr", "Ordinateur")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("en", "Laptop"), ("fr", "Ordinateur")], await shop.StoredNamesAsync());
         Assert.Single(shop.Probe.RanInsideTransaction);
     }
 
@@ -590,7 +591,7 @@ public sealed class SaveCompositionTests
         }
 
         Assert.Equal("Laptop", await shop.StoredColumnNameAsync(id));
-        Assert.Equal([("ar", (string?)"حاسوب")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("ar", "حاسوب")], await shop.StoredNamesAsync());
         Assert.Single(shop.Probe.RanInsideTransaction);
     }
 
@@ -624,7 +625,7 @@ public sealed class SaveCompositionTests
         }
 
         Assert.Equal("Laptop Pro", await shop.StoredColumnNameAsync(id));
-        Assert.Equal([("ar", (string?)"حاسوب برو")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("ar", "حاسوب برو")], await shop.StoredNamesAsync());
         Assert.Single(shop.Probe.RanInsideTransaction);
     }
 
@@ -672,7 +673,7 @@ public sealed class SaveCompositionTests
             await scope.Db.SaveChangesAsync();
         }
 
-        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("fr", "Souris")], await shop.StoredNamesAsync());
         Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
     }
 
@@ -695,7 +696,7 @@ public sealed class SaveCompositionTests
             await scope.Db.SaveChangesAsync();
         }
 
-        Assert.Equal([("fr", (string?)"Note"), ("fr", "Souris")], (await shop.StoredNamesAsync()).OrderBy(n => n.Value).ToList());
+        Assert.Equal<(string, string?)>([("fr", "Note"), ("fr", "Souris")], (await shop.StoredNamesAsync()).OrderBy(n => n.Value).ToList());
         Assert.Equal((2, 2, 1), await shop.StoredCountsAsync());
     }
 
@@ -775,7 +776,7 @@ public sealed class SaveCompositionTests
             await scope.Db.SaveChangesAsync();
         }
 
-        Assert.Equal([("en", (string?)"Laptop"), ("fr", "Ordinateur")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("en", "Laptop"), ("fr", "Ordinateur")], await shop.StoredNamesAsync());
     }
 
     [Theory]
@@ -792,7 +793,7 @@ public sealed class SaveCompositionTests
         }
 
         Assert.Equal([true], shop.Probe.RanInsideTransaction);
-        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("fr", "Souris")], await shop.StoredNamesAsync());
         Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
     }
 
@@ -970,7 +971,7 @@ public sealed class SyncSaveCompositionTests
         }
 
         Assert.Equal([true], shop.Probe.RanInsideTransaction);
-        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("fr", "Souris")], await shop.StoredNamesAsync());
         Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
     }
 
@@ -1089,7 +1090,7 @@ public sealed class SyncSaveCompositionTests
             scope.Db.SaveChanges();
         }
 
-        Assert.Equal([("fr", (string?)"Souris")], await shop.StoredNamesAsync());
+        Assert.Equal<(string, string?)>([("fr", "Souris")], await shop.StoredNamesAsync());
         Assert.Equal((1, 1, 1), await shop.StoredCountsAsync());
     }
 

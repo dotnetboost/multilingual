@@ -437,11 +437,9 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         try
         {
             var entries = context.ChangeTracker.Entries().ToList();
-            foreach (var entry in entries)
-            {
-                if (entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
-                    state.Changed.Add((entry, entry.State));
-            }
+            state.Changed.AddRange(entries
+                .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+                .Select(e => (e, e.State)));
 
             if (!entries.Exists(e => MultiLingualMetadata.IsMultiLingual(e.Metadata.ClrType)))
                 return state;
