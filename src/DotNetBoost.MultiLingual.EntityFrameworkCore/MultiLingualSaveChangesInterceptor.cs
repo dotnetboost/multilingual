@@ -496,7 +496,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
                     }
 
                     if (entry.State == EntityState.Added)
-                        RequireBaseLanguageOnCreate(entityName);
+                        RequireBaseLanguageOnCreate(entry, entityName);
                     else
                         ApplyBaseLanguageRules(entry);
 
@@ -570,16 +570,18 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     /// null in every language but Arabic.
     /// <para>
     /// A scope with no language resolved — a seeder, a background job — is exempt: it has no
-    /// Accept-Language to be wrong about, and its property values go straight to the columns.
+    /// Accept-Language to be wrong about, and its property values go straight to the columns. So is
+    /// an entity whose every translatable value came from <c>SetAll</c>'s base language: it is
+    /// created in the base language, whatever the current one is.
     /// </para>
     /// </summary>
-    private void RequireBaseLanguageOnCreate(string entityName)
+    private void RequireBaseLanguageOnCreate(EntityEntry entry, string entityName)
     {
         if (!Options.HasBaseLanguage)
             return;
 
         var language = LanguageContext;
-        if (!language.IsResolved || Options.IsBaseLanguage(language.Current.Code))
+        if (!language.IsResolved || Options.IsBaseLanguage(language.Current.Code) || Engine.HoldsOnlyBaseAuthoredValues(entry.Entity))
             return;
 
         throw new BaseLanguageRequiredException(entityName, Options.BaseLanguage!, language.Current.Code);
@@ -657,6 +659,10 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
                 continue;
 
             var member = entry.Property(property.Name);
+
+            // SetAll's base language: the column is written as assigned, whatever is current.
+            if (Engine.IsBaseAuthored(entry.Entity, property.Name, member.CurrentValue as string))
+                continue;
 
             if (member.IsModified)
             {

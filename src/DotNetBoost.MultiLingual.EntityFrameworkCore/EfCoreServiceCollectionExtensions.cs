@@ -31,6 +31,7 @@ namespace Microsoft.Extensions.DependencyInjection
             services.AddScoped<ILanguageStore>(sp => new EfCoreLanguageStore(sp.GetRequiredService<TContext>()));
             services.Replace(ServiceDescriptor.Scoped<IEntityKeyAccessor>(
                 sp => new EfCoreEntityKeyAccessor(sp.GetRequiredService<TContext>())));
+            services.TryAddScoped<IBaseColumnReader>(sp => new EfCoreBaseColumnReader(sp.GetRequiredService<TContext>()));
 
             services.TryAddScoped<MultiLingualSaveChangesInterceptor>();
 

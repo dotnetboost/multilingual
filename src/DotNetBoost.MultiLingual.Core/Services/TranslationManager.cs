@@ -374,10 +374,17 @@ internal sealed partial class TranslationManager(
             isFallback      = !string.Equals(language, baseLanguage, StringComparison.OrdinalIgnoreCase);
         }
 
+        // In base-language mode, what the property holds before its first serve is the column the
+        // entity was loaded with: what GetAllAsync(includeBase: true) answers for the base language
+        // where it cannot read the column itself.
+        var current = property.GetValue(instance);
+        if (baseLanguage is not null && !tracker.IsServedValue(instance, property.Name, current))
+            tracker.RememberBaseValue(instance, property.Name, current, replace: false);
+
         string? effective;
         if (keepColumnValue)
         {
-            effective = property.GetValue(instance);
+            effective = current;
         }
         else
         {
@@ -478,6 +485,72 @@ internal sealed partial class TranslationManager(
 
             Serve(entity, property, values[2 * i], values[(2 * i) + 1], language, fallback);
         }
+    }
+
+    /// <summary>
+    /// Assigns base-language <paramref name="values"/> to <paramref name="entity"/>'s properties and
+    /// marks them as such: <c>SetAll</c>'s base language. <c>null</c> becomes the empty string —
+    /// the base language is a column, which can be emptied but has no row to remove. Names are
+    /// checked by the caller.
+    /// </summary>
+    internal void AssignBaseValues(object entity, IReadOnlyDictionary<string, string?> values)
+    {
+        var baseLanguage = options.BaseLanguage
+            ?? throw new InvalidOperationException("Base-language values need a configured base language.");
+
+        var translatable = MultiLingualMetadata.For(entity.GetType());
+        foreach (var (propertyName, value) in values)
+        {
+            var property = translatable.First(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal));
+            var assigned = value ?? string.Empty;
+
+            property.SetValue(entity, assigned);
+            tracker.MarkBaseAuthored(entity, property.Name, assigned, baseLanguage);
+        }
+    }
+
+    /// <summary>True when <paramref name="entity"/> has no key yet, so nothing of it is stored.</summary>
+    internal bool HasNoKey(object entity) => keys.GetKey(entity) is null;
+
+    /// <summary>True when the property still holds the base-language value <c>SetAll</c> assigned it.</summary>
+    internal bool IsBaseAuthored(object entity, string propertyName, string? currentValue) =>
+        tracker.IsBaseAuthored(entity, propertyName, currentValue);
+
+    /// <summary>
+    /// True when every translatable property of <paramref name="entity"/> that holds a value got it
+    /// from <c>SetAll</c>'s base language — an entity created in the base language whatever the
+    /// current one is.
+    /// </summary>
+    internal bool HoldsOnlyBaseAuthoredValues(object entity)
+    {
+        var any = false;
+        foreach (var property in MultiLingualMetadata.For(entity.GetType()))
+        {
+            var value = property.GetValue(entity);
+            if (value is null)
+                continue;
+
+            if (!tracker.IsBaseAuthored(entity, property.Name, value))
+                return false;
+
+            any = true;
+        }
+
+        return any;
+    }
+
+    /// <summary>
+    /// The base-language values of <paramref name="entity"/> as this scope knows them, where the
+    /// column cannot be read: remembered from its first read or from <c>SetAll</c>, else what the
+    /// property holds — never localized, so still the column it was loaded with.
+    /// </summary>
+    internal IReadOnlyDictionary<string, string?> KnownBaseValues(object entity)
+    {
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var property in MultiLingualMetadata.For(entity.GetType()))
+            values[property.Name] = tracker.TryGetBaseValue(entity, property.Name, out var remembered) ? remembered : property.GetValue(entity);
+
+        return values;
     }
 
     /// <summary>
@@ -704,8 +777,16 @@ internal sealed partial class TranslationManager(
         if (!write.ValuesByLanguage.TryGetValue(authoring, out var values))
             return;
 
+        var translatable = MultiLingualMetadata.For(write.Source!.GetType());
         foreach (var (propertyName, value) in values)
-            tracker.Mark(write.Source!, propertyName, value, authoring, isFallback: false);
+        {
+            // Only where the property holds what was written. A value staged for the current
+            // language beside a different one in the property — SetAll put the base language's
+            // there — is stored, but the property's own mark stays what it is.
+            var property = translatable.FirstOrDefault(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal));
+            if (property is not null && string.Equals(property.GetValue(write.Source), value, StringComparison.Ordinal))
+                tracker.Mark(write.Source, propertyName, value, authoring, isFallback: false);
+        }
     }
 
     public async Task SaveAsync(object entity, CancellationToken ct = default)

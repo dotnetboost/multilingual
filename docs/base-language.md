@@ -44,8 +44,9 @@ columns and rows, so treat it as a schema change, not a setting.
 1. **An entity may only be created in the base language.** The base value is the column every
    translation hangs off and the last fallback for every other language, so it has to exist first.
    Creating with any other `Accept-Language` is refused with `BaseLanguageRequiredException`
-   (HTTP 409). Add other languages with a follow-up update, one language per request. Scopes with
-   no language resolved — seeders, background jobs — are exempt.
+   (HTTP 409). Add other languages with a follow-up update, or create with
+   [`SetAll`](#editing-every-language-at-once), which writes the base language whatever is current.
+   Scopes with no language resolved — seeders, background jobs — are exempt.
 2. **The base language cannot be deleted or deactivated**, even once it is no longer the default.
 3. **The base language is never a translation row.** It has exactly one home, so the two cannot
    drift; `For(entity).Set(baseLanguage, …)` and `Clear(baseLanguage)` are refused with
@@ -80,6 +81,40 @@ await multiLingual.For(product).SaveAsync();
 ```
 
 See [Dapper](dapper.md#the-three-differences) and [MongoDB](mongodb.md#3-base-language-mode-puts-two-duties-on-your-code).
+
+## Editing every language at once
+
+An editor shows a box per language and sends them all back together, base language included. Two
+calls do that under any `Accept-Language`, without switching the current language:
+
+```csharp
+// Read every box: the stored translations, and the base language from its columns
+var boxes = await multiLingual.For(product).GetAllAsync(includeBase: true);
+
+// Write every box: the base language to the columns, the others as translations
+multiLingual.For(product).SetAll(request.Languages);   // languageCode → (propertyName → value)
+await db.SaveChangesAsync();
+```
+
+- **`SetAll`** assigns the base language's values to the properties and queues every other
+  language as `Set` would. The save writes those base values to the columns even while another
+  language is current, and never as that language's translation. `null` for a base value empties
+  the column: there is no row to remove. Everything is checked first, so an unknown language or
+  property refuses the whole call and queues nothing.
+- **Creating** works the same way, under any language, as long as every translatable value the
+  new entity holds came from `SetAll`. One assigned directly is still refused, as rule 1 says.
+- **`GetAllAsync(includeBase: true)`** adds the base language to what `GetAllAsync()` returns, as
+  stored: EF Core reads the columns from the database, by key, so another language a read put in
+  the properties, or a `SetAll` not saved yet, does not show. Without a change tracker (Dapper,
+  MongoDB) it answers what the properties held before the first localization, or what `SetAll`
+  assigned. Keys compare case-insensitively.
+
+After `SetAll` the properties hold the base language, whatever language is current, so a response
+built from the entity shows that language. Without a change tracker, save the entity's row as usual
+(it writes the base columns), then call `For(product).SaveAsync()` for the translations.
+
+Outside base-language mode both calls still work: `SetAll` is `Set` per language, and `includeBase`
+adds nothing, so an editor's code does not need to know which mode is on.
 
 ## The columns are ordinary columns
 

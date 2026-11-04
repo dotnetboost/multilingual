@@ -228,6 +228,20 @@ public interface ITranslationAccessor<T> where T : class
     /// </summary>
     Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// As <see cref="GetAllAsync(CancellationToken)"/>; with <paramref name="includeBase"/>, in
+    /// base-language mode, the base language too — every language an editor shows, wherever it is
+    /// stored, read without changing the current language.
+    /// <para>
+    /// The base language's values are its columns as stored: the EF Core provider reads them from
+    /// the database, so an edit not yet saved, or another language a read put in the properties,
+    /// does not show. Providers without a change tracker answer what the properties held before a
+    /// read first localized them, or what <see cref="SetAll"/> assigned.
+    /// </para>
+    /// <para>Outside base-language mode <paramref name="includeBase"/> adds nothing: every language is a translation already.</para>
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>>> GetAllAsync(bool includeBase, CancellationToken ct = default);
+
     /// <summary>Fills the entity's translatable properties in the current language, with fallback.</summary>
     Task LocalizeAsync(CancellationToken ct = default);
 
@@ -256,6 +270,30 @@ public interface ITranslationAccessor<T> where T : class
     /// <exception cref="BaseLanguageNotTranslatableException"><paramref name="languageCode"/> is the base language.</exception>
     /// <exception cref="ArgumentException">A property name is not translatable.</exception>
     ITranslationAccessor<T> Set(string languageCode, IReadOnlyDictionary<string, string?> values);
+
+    /// <summary>
+    /// Queues every language at once, as languageCode → (propertyName → value) — what an editor
+    /// sends — whatever the current language is.
+    /// <list type="bullet">
+    ///   <item>Every language but the base one is queued as with <see cref="Set(string, IReadOnlyDictionary{string, string})"/>.</item>
+    ///   <item>In base-language mode, the base language's values are assigned to the properties and
+    ///   saved to the entity's columns, even while another language is current, and never as that
+    ///   language's translation. <c>null</c> becomes the empty string: the column can be emptied,
+    ///   not removed. An entity may be created this way in any language, as long as every
+    ///   translatable value it holds came from here.</item>
+    /// </list>
+    /// <para>
+    /// Everything is checked before anything is queued: one unknown language or property refuses
+    /// the whole call. Outside base-language mode this is <c>Set</c> per language.
+    /// </para>
+    /// <para>
+    /// The properties hold the base language afterwards, whatever language is current, so a
+    /// response built from the entity shows that language.
+    /// </para>
+    /// </summary>
+    /// <exception cref="LanguageNotFoundException">A language does not exist.</exception>
+    /// <exception cref="ArgumentException">A property name is not translatable.</exception>
+    ITranslationAccessor<T> SetAll(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> byLanguage);
 
     /// <summary>
     /// Queues the removal of every stored translation of the entity in

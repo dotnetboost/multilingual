@@ -85,5 +85,51 @@ internal sealed class HydratedValueTracker
         && (hydrated.IsFallback
             || string.Equals(hydrated.LanguageCode, authoringLanguage, StringComparison.OrdinalIgnoreCase));
 
+    // ------------------------------------------------------------------ base-language mode
+
+    private readonly ConditionalWeakTable<object, Dictionary<string, string?>> _baseValues = new();
+    private readonly ConditionalWeakTable<object, Dictionary<string, string?>> _baseAuthored = new();
+
+    /// <summary>
+    /// Remembers <paramref name="value"/> as what the base language's column holds for the
+    /// property. Without <paramref name="replace"/>, only the first value counts: the one a read
+    /// found in the property before it served another language there.
+    /// </summary>
+    public void RememberBaseValue(object entity, string propertyName, string? value, bool replace)
+    {
+        var byProperty = _baseValues.GetValue(entity, static _ => new Dictionary<string, string?>(StringComparer.Ordinal));
+        if (replace || !byProperty.ContainsKey(propertyName))
+            byProperty[propertyName] = value;
+    }
+
+    /// <summary>The base-language value remembered for the property, if any.</summary>
+    public bool TryGetBaseValue(object entity, string propertyName, out string? value)
+    {
+        value = null;
+        return _baseValues.TryGetValue(entity, out var byProperty) && byProperty.TryGetValue(propertyName, out value);
+    }
+
+    /// <summary>
+    /// Declares <paramref name="value"/>, just assigned to the property, as the base language's —
+    /// <c>SetAll</c> — so a save writes it to the column whatever language is current, and never
+    /// as that language's translation.
+    /// </summary>
+    public void MarkBaseAuthored(object entity, string propertyName, string? value, string baseLanguage)
+    {
+        var byProperty = _baseAuthored.GetValue(entity, static _ => new Dictionary<string, string?>(StringComparer.Ordinal));
+        byProperty[propertyName] = value;
+
+        // On loan from the base language, as far as every other language is concerned: what
+        // keeps CaptureValues from filing it as the current language's text.
+        Mark(entity, propertyName, value, baseLanguage, isFallback: true);
+        RememberBaseValue(entity, propertyName, value, replace: true);
+    }
+
+    /// <summary>True when the property still holds the base-language value <c>SetAll</c> assigned it.</summary>
+    public bool IsBaseAuthored(object entity, string propertyName, string? currentValue) =>
+        _baseAuthored.TryGetValue(entity, out var byProperty)
+        && byProperty.TryGetValue(propertyName, out var authored)
+        && string.Equals(authored, currentValue, StringComparison.Ordinal);
+
     private sealed record Hydrated(string? Value, string LanguageCode, bool IsFallback);
 }
