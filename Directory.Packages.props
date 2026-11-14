@@ -26,12 +26,12 @@
   <!-- Aspire: aspire/ and samples/SampleApp only, never a shipped package. Same versions as
        DotNetBoost.Settings, so the two AppHosts share one restored Aspire bundle. -->
   <ItemGroup Label="Aspire — AppHost (orchestration)">
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.4" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.4" />
-    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.4" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.5" />
     <!-- Referenced only when the matching database block in AppHost.cs is uncommented. -->
-    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.6.4" />
-    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.6.4" />
+    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.6.5" />
   </ItemGroup>
 
   <ItemGroup Label="Aspire — consumed by the sample API">
@@ -129,7 +129,12 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
   </ItemGroup>
 
-  <ItemGroup Label="Microsoft.Extensions — net10.0" Condition="'$(_Net8)' != 'true'">
+  <!--
+    On net10.0 the shipped libraries keep 10.0.12. Everything else — tests, samples and the Aspire
+    host — takes what Aspire.Hosting 13.6.5 asks for, 10.0.14, or transitive pinning turns the
+    AppHost's restore into a downgrade (NU1109).
+  -->
+  <ItemGroup Label="Microsoft.Extensions — net10.0, shipped libraries" Condition="'$(_Net8)' != 'true' and '$(IsShippedLibrary)' == 'true'">
     <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
@@ -140,6 +145,19 @@
     <PackageVersion Include="Microsoft.Extensions.Localization.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft.Extensions — net10.0, tests, samples and the AppHost" Condition="'$(_Net8)' != 'true' and '$(IsShippedLibrary)' != 'true'">
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.FileProviders.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.FileProviders.Physical" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Localization.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup Label="EF Core / ASP.NET Core — net8.0" Condition="'$(_Net8)' == 'true'">
