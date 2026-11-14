@@ -77,7 +77,7 @@ jobs:
           path: ./test-results
 
       - name: Coverage gate
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        uses: danielpalme/ReportGenerator-GitHub-Action@5f3701a41d14548c9b8e575a5c235230e515cbc0 # 5 (v5.6.0)
         with:
           reports: './test-results/**/coverage.cobertura.xml'
           targetdir: './coverage-html'
