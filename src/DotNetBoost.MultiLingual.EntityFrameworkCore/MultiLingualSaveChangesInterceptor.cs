@@ -343,31 +343,67 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
     /// <remarks>
     /// EF raises this instead of <c>SaveChangesFailed</c> for a concurrency conflict, just before
     /// it throws — unless an interceptor suppresses the exception, and then the save goes on.
+    /// Rolled back later, not here: see <see cref="RollBackAfterConflict"/>.
     /// </remarks>
-    public override async ValueTask<InterceptionResult> ThrowingConcurrencyExceptionAsync(
+    public override ValueTask<InterceptionResult> ThrowingConcurrencyExceptionAsync(
         ConcurrencyExceptionEventData eventData,
         InterceptionResult result,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(eventData);
         if (!result.IsSuppressed)
-            await FailedAsync(eventData.Context);
+            RollBackAfterConflict(eventData.Context);
 
-        return result;
+        return ValueTask.FromResult(result);
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// EF raises this instead of <c>SaveChangesFailed</c> for a concurrency conflict, just before
-    /// it throws — unless an interceptor suppresses the exception, and then the save goes on.
-    /// </remarks>
+    /// <remarks>See <see cref="ThrowingConcurrencyExceptionAsync"/>.</remarks>
     public override InterceptionResult ThrowingConcurrencyException(ConcurrencyExceptionEventData eventData, InterceptionResult result)
     {
         ArgumentNullException.ThrowIfNull(eventData);
         if (!result.IsSuppressed)
-            Failed(eventData.Context);
+            RollBackAfterConflict(eventData.Context);
 
         return result;
+    }
+
+    /// <summary>
+    /// Arranges the rollback for a concurrency conflict, which cannot happen in the hook that
+    /// reports it.
+    /// </summary>
+    /// <remarks>
+    /// EF raises <c>ThrowingConcurrencyException</c> while it is still reading the batch's results.
+    /// The connection is busy, so a <c>ROLLBACK</c> sent then fails on PostgreSQL ("a command is
+    /// already in progress") and SQL Server ("an open DataReader"), and its error replaces the
+    /// <see cref="DbUpdateConcurrencyException"/> the caller should have seen. SQLite does not
+    /// mind, which is how this hid. EF raises <c>DbContext.SaveChangesFailed</c> once the reader is
+    /// closed, just before it throws, and the save ends there, through <see cref="Failed"/>:
+    /// synchronously, as the event is, so under <c>SaveChangesAsync</c> the rollback is one
+    /// blocking round trip.
+    /// </remarks>
+    private void RollBackAfterConflict(DbContext? context)
+    {
+        if (context is null || !_states.TryGetValue(context, out var state) || state.IsApplying)
+            return;
+
+        state.RollBackOnFailedEvent = true;
+
+        if (!state.ListensToSaveChangesFailed)
+        {
+            context.SaveChangesFailed += OnSaveChangesFailed;
+            state.ListensToSaveChangesFailed = true;
+        }
+    }
+
+    /// <summary>EF's <c>SaveChangesFailed</c> event: acted on only after a concurrency conflict.</summary>
+    private void OnSaveChangesFailed(object? sender, SaveChangesFailedEventArgs e)
+    {
+        if (sender is not DbContext context || !_states.TryGetValue(context, out var state) || !state.RollBackOnFailedEvent)
+            return;
+
+        state.RollBackOnFailedEvent = false;
+        Failed(context);
     }
 
     private async Task FailedAsync(DbContext? context)
@@ -813,6 +849,15 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
         /// <summary>Whether this interceptor listens to the context's <c>SavedChanges</c> event.</summary>
         public bool ListensToSavedChanges { get; set; }
 
+        /// <summary>Whether this interceptor listens to the context's <c>SaveChangesFailed</c> event.</summary>
+        public bool ListensToSaveChangesFailed { get; set; }
+
+        /// <summary>
+        /// Set by a concurrency conflict: the save ends at EF's <c>SaveChangesFailed</c> event. Cleared
+        /// by <see cref="Reset"/>, so a conflict another interceptor suppressed cannot end a later save.
+        /// </summary>
+        public bool RollBackOnFailedEvent { get; set; }
+
         /// <summary>Set while a retrying strategy owns the transaction; survives <see cref="Reset"/>.</summary>
         public bool DeferCompletion { get; set; }
 
@@ -836,6 +881,7 @@ internal sealed partial class MultiLingualSaveChangesInterceptor(IServiceProvide
             CommitPending = false;
             NestedSavesAwaitingEvent = 0;
             Applied.Clear();
+            RollBackOnFailedEvent = false;
         }
     }
 

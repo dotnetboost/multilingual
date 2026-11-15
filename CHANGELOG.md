@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **A concurrency conflict now surfaces as `DbUpdateConcurrencyException` on PostgreSQL and SQL
+  Server.** In a save that writes translations without a retrying strategy, the save interceptor
+  rolled back its own transaction from EF's `ThrowingConcurrencyException` hook. EF raises that hook
+  while it is still reading the batch's results, so the engine refused the `ROLLBACK` ("a command
+  is already in progress" on PostgreSQL, "an open DataReader" on SQL Server), and the caller got a
+  `DbUpdateException` wrapping that error instead of the concurrency exception. No transaction was
+  left open and nothing was stored, but code that handles `DbUpdateConcurrencyException` never saw
+  one. The rollback now waits for EF's `DbContext.SaveChangesFailed` event, raised once the reader
+  is closed. SQLite accepts the rollback either way, which is why the provider tests passed; a new
+  integration test covers both engines, both save methods, with and without a retrying strategy.
+  Under a retrying strategy the save was already unaffected.
+
 ### Security
 - **Aspire moved from 13.6.4 to 13.6.5**, for
   [GHSA-f7vh-h5g3-7jrh](https://github.com/advisories/GHSA-f7vh-h5g3-7jrh) (CVE-2026-120006), an
