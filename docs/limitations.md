@@ -51,7 +51,8 @@ owns the transaction**. What the save interceptor does at each step:
 | `SavingChanges` | Captures the translation work. When there is some and no transaction is open (neither `Database.CurrentTransaction` nor an ambient `TransactionScope`), opens one |
 | `SavedChanges` | Writes the translation rows through the same context. That is a nested `SaveChanges`, which other interceptors see too. Then commits the transaction it opened, unless another `SaveChanges` interceptor is registered after it (next row) |
 | EF's `DbContext.SavedChanges` event | Commits the transaction it opened, when another `SaveChanges` interceptor follows it. EF raises the event once every interceptor's `SavedChanges` has returned, so their post-save work is inside the transaction too |
-| `SaveChangesFailed`, `SaveChangesCanceled`, `ThrowingConcurrencyException` | Rolls back the transaction it opened, and puts the change tracker back so the save can be retried, detaching any row the failed save started tracking |
+| `SaveChangesFailed`, `SaveChangesCanceled` | Rolls back the transaction it opened, and puts the change tracker back so the save can be retried, detaching any row the failed save started tracking |
+| `ThrowingConcurrencyException`, then EF's `DbContext.SaveChangesFailed` event | The same, for a concurrency conflict, but at the event rather than the hook. EF raises the hook while it is still reading the batch's results, and PostgreSQL and SQL Server refuse a `ROLLBACK` on that busy connection. The event comes once the reader is closed. It is synchronous, so under `SaveChangesAsync` that rollback is one blocking round trip |
 
 EF Core runs interceptors in the order they were added, and each one's `SavedChanges` may do more
 work: an audit trail writes the entries that needed the generated keys, often with a `SaveChanges`

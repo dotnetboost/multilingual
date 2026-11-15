@@ -220,6 +220,82 @@ public abstract class SaveCompositionIntegrationTests
 
         Assert.Equal((0, 0, 1), await database.StoredCountsAsync());
     }
+
+    /// <summary>
+    /// A concurrency conflict in a save that writes translations surfaces as
+    /// <see cref="DbUpdateConcurrencyException"/>, leaves no transaction open, and the context's
+    /// next save works.
+    ///
+    /// <para>EF reports a conflict through <c>ThrowingConcurrencyException</c>, not
+    /// <c>SaveChangesFailed</c>, and raises it while it is still reading the batch's results. On
+    /// SQLite a rollback there succeeds (see <c>SaveCompositionTests</c>); PostgreSQL and SQL Server
+    /// may refuse a command on a connection that is still reading. Without a retrying strategy this
+    /// library opens the transaction itself, so that is the path at risk; under one, the transaction
+    /// is opened around the save and rolled back when the exception has left EF.</para>
+    ///
+    /// <para>The follow-up interceptor is switched off: this is about this library's transaction
+    /// alone.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task AConcurrencyConflict_SurfacesAsSuch_AndTheNextSaveWorks(bool synchronous, bool retrying)
+    {
+        await using var database = await StartAsync(FollowUpOrder.After, retrying);
+        database.Probe.Enabled = false;
+
+        int id;
+        await using (var scope = await database.ScopeInAsync("en"))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ComposedShopDbContext>();
+            var created = new ShopProduct { Sku = "MOUSE", Price = 1, Name = "Mouse" };
+            db.Products.Add(created);
+            await db.SaveChangesAsync();
+            id = created.Id;
+        }
+
+        await using (var scope = await database.ScopeInAsync("fr"))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ComposedShopDbContext>();
+            var product = await db.Products.SingleAsync(p => p.Id == id);
+
+            // The row goes behind this context's back, so its UPDATE affects nothing.
+            await using (var other = database.Scope())
+            {
+                await other.ServiceProvider.GetRequiredService<ComposedShopDbContext>()
+                    .Products.IgnoreTranslations().Where(p => p.Id == id).ExecuteDeleteAsync();
+            }
+
+            product.Price = 2;
+            product.Name  = "Souris";
+
+            var thrown = synchronous
+                ? Record.Exception(() => db.SaveChanges())
+                : await Record.ExceptionAsync(() => db.SaveChangesAsync());
+
+            Assert.True(
+                thrown is DbUpdateConcurrencyException,
+                $"Expected DbUpdateConcurrencyException, got {thrown?.GetType().FullName ?? "nothing"}: {thrown?.Message} "
+                + $"Inner: {thrown?.InnerException?.GetType().FullName}: {thrown?.InnerException?.Message}");
+            Assert.Null(db.Database.CurrentTransaction);
+
+            db.Entry(product).State = EntityState.Detached;
+            db.Products.Add(new ShopProduct { Sku = "KEYBOARD", Price = 3, Name = "Clavier" });
+
+            if (synchronous) db.SaveChanges();
+            else await db.SaveChangesAsync();
+        }
+
+        await using (var scope = database.Scope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ComposedShopDbContext>();
+            var values = await db.Translations.Select(t => t.Value).ToListAsync();
+            Assert.Contains("Clavier", values);
+            Assert.DoesNotContain("Souris", values);
+        }
+    }
 }
 
 [Collection(PostgreSqlCollection.Name)]
